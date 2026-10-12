@@ -942,7 +942,8 @@ VIEWS.ob = () => {
     <p class="center muted">${t('ob_ready')}, ${esc(o.name)}.</p>
     <button class="btn block" data-act="obFinish" id="obGo">${t('ob_go')}</button>`;
   }
-  return `<div class="ob">${o.step < 6 ? obDots() : ''}${body}<div class="center">${back}</div></div>`;
+  const prev = S.prevFamily && o.step === 0 ? `<button class="link" data-act="backToFamily">← ${esc(S.prevFamily.babies?.join(' & ') || 'önceki aile')} ailesine dön</button>` : '';
+  return `<div class="ob">${o.step < 6 ? obDots() : ''}${body}<div class="center">${back}${prev}</div></div>`;
 };
 VIEWS.ob_mount = null;
 function obNext() { S.ob.step++; render(); setTimeout(() => $('#app input')?.focus(), 350); }
@@ -977,7 +978,7 @@ A.obFinish = async () => {
   S.local = localOnly; S.family = fam;
   S.me = { user_id: uid, family_id: fam, display_name: o.name, role: 'parent', parent_kind: o.kind, show_awake: true, localOnly };
   S.members = [{ family_id: fam, user_id: uid, role: 'parent', parent_kind: o.kind, display_name: o.name, show_awake: true }];
-  b.family_id = fam; S.babies = [b]; S.babyId = b.id; S.obSex = null;
+  b.family_id = fam; S.babies = [b]; S.babyId = b.id; S.obSex = null; S.prevFamily = null;
   await kv.set('me', S.me); await kv.set('members', S.members); await kv.set('babyId', b.id); await IDB.put('babies', b);
   if (o.where === 'born') await ensureAutoFirsts();
   S.screen = 'main'; S.tab = 'today'; render(); afterLogin();
@@ -1068,7 +1069,11 @@ VIEWS.join = () => {
       <button class="btn block" data-act="joinStep">${t('next')}</button>
     </div>`;
 };
-A.joinCancel = () => { S.pendingJoin = null; history.replaceState(null, '', location.pathname); S.screen = 'ob'; render(); };
+A.joinCancel = () => {
+  S.pendingJoin = null; history.replaceState(null, '', location.pathname);
+  if (S.prevFamily) return A.backToFamily();
+  S.screen = 'ob'; render();
+};
 A.joinLookup = async () => {
   const j = S.pendingJoin; j.code = ($('#jCode')?.value || j.code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (j.code.length < 8) { j.err = 'Kod 8 karakter olmalı.'; return render(); }
@@ -1093,7 +1098,7 @@ A.joinDo = async () => {
     S.me = { user_id: S.session.user.id, family_id: fam, display_name: TR.cap(name), role: j.info.role, parent_kind: j.kind || null, relation: rel, show_awake: true };
     await kv.set('me', S.me);
     history.replaceState(null, '', location.pathname);
-    S.pendingJoin = null; S.screen = 'main'; S.tab = 'today';
+    S.pendingJoin = null; S.prevFamily = null; S.screen = 'main'; S.tab = 'today';
     $('#app').innerHTML = '<div class="ob center"><p class="q">Anılar geliyor…</p></div>';
     await pull(true); await kv.set('babyId', S.babyId); render(); afterLogin();
   } catch (e) { console.warn(e); toast('Katılamadık; davet kullanılmış olabilir'); }
@@ -2211,7 +2216,7 @@ VIEWS.me = () => {
   ${checks.length ? `<div class="card"><h3>Haftalık check-in'lerin</h3><p class="muted tiny">Bunları sadece sen görürsün, kimseyle paylaşılmaz.</p><div class="row wrap" style="gap:10px;margin-top:8px">${checks.map(c => `<div class="center"><div style="font-size:1.5rem">${MOODS[c.data.level - 1][1]}</div><div class="muted tiny">${fmtDate(c.ts, { day: 'numeric', month: 'short' })}</div></div>`).join('')}</div></div>` : ''}
   ${settingsHTML()}`;
 };
-VIEWS.me_mount = root => bindSelfForm(root);
+VIEWS.me_mount = root => { bindSelfForm(root); if (!S.fams || Date.now() - (S.famsAt || 0) > 60000) { S.famsAt = Date.now(); loadFamilies(); } };
 function bindSelfForm(root) {
   const sl = $('#sdSl', root); sl && sl.addEventListener('input', () => $('#sdSlV', root).textContent = sl.value);
   $('#sdMood', root)?.addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (!b || b.disabled) return; $$('#sdMood .qbtn', root).forEach(x => x.classList.toggle('run', x === b)); });
@@ -2268,8 +2273,8 @@ function settingsHTML() {
     ${S.sb && !S.local ? `<div class="hr"></div><p class="small">Ana ekrana ya da yeni bir telefona geçerken hesabını yanında götür.</p><button class="btn sm ghost" style="margin-top:8px" data-act="transfer">📲 Başka cihaza taşı</button>` : ''}
     ${S.sb && CONFIG.GOOGLE && S.session?.user?.is_anonymous ? `<div class="hr"></div><p class="small">${t('link_p')}</p><button class="btn sm" data-act="linkGoogle">${t('link_btn')}</button>` : S.session?.user && !S.session.user.is_anonymous ? `<div class="hr"></div><p class="small muted">🔐 Hesabın Google ile bağlı.</p>` : ''}
   </div>
-  <p class="muted tiny center">Ninni ${APP_VERSION} · ${t('appSub')} · Analitik yok, reklam yok. Veriler sadece ailenle senin aranda.</p>
-  ${!isParent() ? `<p class="center"><button class="link small" data-act="leave">Aileden ayrıl</button></p>` : ''}`;
+  ${accountCard()}
+  <p class="muted tiny center">Ninni ${APP_VERSION} · ${t('appSub')} · Analitik yok, reklam yok. Veriler sadece ailenle senin aranda.</p>`;
 }
 document.addEventListener('change', async e => {
   const el = e.target; const k = el.dataset?.sw; if (!k) return;
@@ -2296,8 +2301,75 @@ A.editName = () => openSheet(`<h2>${t('ob_name')}</h2><input class="in" id="enN"
 A.editNameSave = async () => { const v = $('#enN').value.trim(); if (!v) return; await saveMe({ display_name: TR.cap(v) }); closeSheet(); render(); };
 A.removeMember = d => openSheet(`<h2>${esc(memberName(d.u))} aileden çıkarılsın mı?</h2><p class="muted">Yazdığı notlar kalır; artık yeni bir şey göremez.</p><button class="btn block" data-act="removeDo" data-u="${d.u}">Evet, çıkar</button><button class="btn ghost block" style="margin-top:10px" data-act="closeSheet">${t('cancel')}</button>`);
 A.removeDo = async d => { try { await rpc('remove_member', { p_family: S.family, p_user: d.u }); closeSheet(); await sync(); render(); } catch (e) { toast('Şu an olmadı'); } };
-A.leave = () => openSheet(`<h2>Aileden ayrılmak istiyor musun?</h2><p class="muted">Bu telefondaki kopyalar silinir.</p><button class="btn block" data-act="leaveDo">Ayrıl</button><button class="btn ghost block" style="margin-top:10px" data-act="closeSheet">${t('cancel')}</button>`);
-A.leaveDo = async () => { try { await rpc('remove_member', { p_family: S.family, p_user: meId() }); } catch (e) { } await resetLocal(); location.reload(); };
+/* ── hesap ve aileler: aynı hesapla birden fazla aile (ör. ablanın ailesinde teyze, kendi ailende anne) */
+function accountCard() {
+  if (!S.sb || S.local) return '';
+  return `<div class="card"><h3>👤 Hesap ve aileler</h3>
+    <div id="famList" class="muted small" style="margin:8px 0">${S.fams ? famListHTML(S.fams) : 'Aileler yükleniyor…'}</div>
+    <div class="row wrap" style="gap:8px"><button class="btn sm" data-act="addFamily" data-m="ob">+ Kendi bebeğimi ekle</button><button class="btn sm ghost" data-act="addFamily" data-m="join">+ Davet koduyla katıl</button></div>
+    <div class="hr"></div>
+    <div class="row wrap" style="gap:14px"><button class="link small" data-act="leave">Bu aileden ayrıl</button><button class="link small" data-act="signOut">Bu telefonda çıkış yap</button></div></div>`;
+}
+async function myFamilies() {
+  const { data: mem } = await S.sb.from('members').select('*').eq('user_id', meId()).order('created_at');
+  if (!mem?.length) return [];
+  const { data: bb } = await S.sb.from('babies').select('family_id,name,created_at').in('family_id', mem.map(m => m.family_id)).eq('deleted', false).order('created_at');
+  return mem.map(m => ({ ...m, babies: (bb || []).filter(b => b.family_id === m.family_id).map(b => b.name || 'Minik') }));
+}
+async function loadFamilies() {
+  if (!$('#famList') || loadFamilies.busy) return;
+  loadFamilies.busy = true;
+  try { S.fams = await myFamilies(); const el = $('#famList'); if (el) el.innerHTML = famListHTML(S.fams); }
+  catch (e) { const el = $('#famList'); if (el && !S.fams) el.textContent = 'Şu an yüklenemedi.'; }
+  finally { loadFamilies.busy = false; }
+}
+function famListHTML(fams) {
+    return fams.map(f => `<button class="list-item" style="width:100%;text-align:left" ${f.family_id === S.family ? '' : `data-act="switchFamily" data-f="${f.family_id}"`}>
+      <span style="font-size:1.4rem">${f.role === 'parent' ? '🏡' : '🤍'}</span>
+      <div class="grow"><b style="color:var(--ink)">${esc(f.babies.join(' & ') || 'Minik')}</b><div class="muted tiny">${f.role === 'parent' ? (f.parent_kind === 'anne' ? 'annesi' : f.parent_kind === 'baba' ? 'babası' : 'ebeveyn') : esc(f.relation || 'seven')}</div></div>
+      ${f.family_id === S.family ? '<span class="pill">şu an</span>' : '<span class="muted">geç ›</span>'}</button>`).join('');
+}
+async function clearFamilyCache() {
+  await push().catch(() => { });
+  if (channel) { S.sb.removeChannel(channel); channel = null; }
+  for (const s of ['entries', 'babies', 'outbox']) await IDB.clear(s);
+  for (const k of ['me', 'members', 'grants', 'cursor', 'babyId']) await kv.set(k, null);
+  S.entries = new Map(); S.babies = []; S.members = []; S.grants = []; S.wish = {}; S.babyId = null; S.pushOk = false; S.famsAt = 0;
+}
+A.switchFamily = async d => {
+  const f = (S.fams || []).find(x => x.family_id === d.f); if (!f) return;
+  await clearFamilyCache(); await enterAs(f); toast(`${f.babies.join(' & ') || 'Minik'} 🤍`);
+};
+A.addFamily = async d => {
+  S.prevFamily = (S.fams || []).find(x => x.family_id === S.family) || null;
+  await clearFamilyCache(); S.me = null; S.family = null; S.nightManual = null;
+  S.ob = { step: 0 }; S.pendingJoin = d.m === 'join' ? { code: '' } : null;
+  S.screen = d.m === 'join' ? 'join' : 'ob'; window.scrollTo(0, 0); render();
+};
+A.backToFamily = async () => { if (S.prevFamily) { const f = S.prevFamily; S.prevFamily = null; S.pendingJoin = null; await enterAs(f); } };
+A.leave = () => {
+  const lastParent = isParent() && S.members.filter(m => m.role === 'parent').length <= 1;
+  if (lastParent) return openSheet(`<h2>Bu ailede tek ebeveyn sensin</h2><p class="muted">Ayrılırsan ${esc(TR.gen(TR.cap(babyName())))} anılarına kimse ulaşamaz. Önce eşini davet edebilir, ya da sadece bu telefonda çıkış yapabilirsin.</p><button class="btn ghost block" data-act="closeSheet">Tamam</button>`);
+  openSheet(`<h2>Bu aileden ayrılmak istiyor musun?</h2><p class="muted">${esc(TR.gen(TR.cap(babyName())))} anılarını artık göremezsin; yazdığın notlar ailede kalır. Başka ailelerin varsa onlara devam edersin.</p>
+    <button class="btn block" data-act="leaveDo">Ayrıl</button><button class="btn ghost block" style="margin-top:10px" data-act="closeSheet">${t('cancel')}</button>`);
+};
+A.leaveDo = async () => {
+  try { await rpc('remove_member', { p_family: S.family, p_user: meId() }); } catch (e) { return toast('Şu an olmadı; internet bağlantısına bakar mısın?'); }
+  closeSheet(); const rest = (await myFamilies().catch(() => [])).filter(f => f.family_id !== S.family);
+  await clearFamilyCache();
+  if (rest.length) { S.fams = rest; await enterAs(rest[0]); } else { S.me = null; S.family = null; S.ob = { step: 0 }; S.screen = 'ob'; render(); }
+};
+A.signOut = () => openSheet(`<h2>Bu telefonda çıkış yap</h2>
+  <p class="muted">Hesabın e-postasız olduğu için bu hesaba geri dönmenin yolu <b>taşıma kodu</b>${CONFIG.GOOGLE ? ' ya da Google bağlantısı' : ''}. Aileye yeniden katılmak için bir ebeveynden yeni davet de isteyebilirsin.</p>
+  <button class="btn ghost block" data-act="transfer">📲 Önce taşıma kodu al</button>
+  <button class="btn block" style="margin-top:10px" data-act="signOutDo">Çıkış yap</button>
+  <button class="link center block" style="margin-top:12px;width:100%" data-act="closeSheet">${t('cancel')}</button>`);
+A.signOutDo = async () => {
+  await clearFamilyCache();
+  try { await S.sb.auth.signOut({ scope: 'local' }); } catch (e) { }
+  await resetLocal(); try { localStorage.removeItem('ninni-auth'); } catch (e) { }
+  location.replace(location.pathname);
+};
 
 /* ── davet: link + QR + kod */
 A.invite = d => {
