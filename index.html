@@ -897,7 +897,7 @@ VIEWS.ob = () => {
       <button data-act="obKind" data-v="anne">${t('ob_mom')}</button>
       <button data-act="obKind" data-v="baba">${t('ob_dad')}</button>
     </div>
-    ${S.sb ? `<div class="center stack"><button class="link" data-act="obHaveCode">${t('ob_havecode')}</button>${CONFIG.GOOGLE ? `<br><button class="link" data-act="obRestore">${t('ob_restore')}</button>` : ''}</div>` : ''}`;
+    ${S.sb ? `<div class="center stack"><button class="link" data-act="obHaveCode">${t('ob_havecode')}</button><br><button class="link" data-act="obRestoreCode">Safari'de / başka telefonda kurmuştum</button>${CONFIG.GOOGLE ? `<br><button class="link" data-act="obRestore">${t('ob_restore')}</button>` : ''}</div>` : ''}`;
   if (o.step === 1) body = `
     <p class="q">${t('ob_name')}</p>
     <input class="in" id="obName" placeholder="${t('ob_name_ph')}" value="${esc(o.name || '')}" autocomplete="given-name" enterkeyhint="next">
@@ -972,6 +972,62 @@ A.obFinish = async () => {
   await kv.set('me', S.me); await kv.set('members', S.members); await kv.set('babyId', b.id); await IDB.put('babies', b);
   if (o.where === 'born') await ensureAutoFirsts();
   S.screen = 'main'; S.tab = 'today'; render(); afterLogin();
+};
+
+/* ══════════════════════════ BAŞKA CİHAZA / ANA EKRANA TAŞIMA ══════════════════════════
+   iPhone'da Safari ile ana ekran uygulamasının verisi ayrıdır. Eski yer oturumun yenileme anahtarını
+   kod olarak verir; yeni yer bu kodla AYNI hesaba girer. Kod tek kullanımlıktır, eski oturum kapanır. */
+async function enterAs(mem) {
+  S.me = { user_id: mem.user_id, family_id: mem.family_id, display_name: mem.display_name, role: mem.role, parent_kind: mem.parent_kind, relation: mem.relation, show_awake: mem.show_awake };
+  S.family = mem.family_id; S.local = false; await kv.set('me', S.me);
+  $('#app').innerHTML = '<div class="ob center"><p class="q">Anılar geliyor…</p></div>';
+  await pull(true); await kv.set('babyId', S.babyId); S.screen = 'main'; S.tab = 'today'; render(); afterLogin();
+}
+A.transfer = async () => {
+  const { data: { session } } = await S.sb.auth.getSession();
+  if (!session) return toast('Önce internete bağlanalım');
+  await push();
+  S.sb.auth.stopAutoRefresh(); // kod kopyalanana kadar bu oturum anahtarı yenilemesin
+  const code = 'NINNI-' + btoa(session.refresh_token).replace(/=+$/, '');
+  openSheet(`<h2>📲 Ana ekrana / başka telefona taşı</h2>
+    <div class="card soft stack small">
+      <div class="row"><span class="pill">1</span><span>Kodu kopyala</span></div>
+      <div class="row"><span class="pill">2</span><span>Ana ekrandaki Ninni'yi aç → <b>"Safari'de / başka telefonda kurmuştum"</b></span></div>
+      <div class="row"><span class="pill">3</span><span>Kodu yapıştır → her şey orada devam eder</span></div>
+    </div>
+    <textarea class="in" readonly id="trCode" rows="2" style="font-size:.85rem">${esc(code)}</textarea>
+    <button class="btn block" style="margin-top:10px" data-act="trCopy">Kodu kopyala</button>
+    <p class="muted tiny" style="margin-top:10px">Bu kod hesabının anahtarı gibidir; kimseyle paylaşma. Kullanıldığında buradaki Ninni kapanır, anıların yeni yerinde devam eder.</p>`);
+};
+A.trCopy = async () => {
+  const el = $('#trCode');
+  try { await navigator.clipboard.writeText(el.value); } catch (e) { el.select(); document.execCommand('copy'); }
+  toast('Kopyalandı · şimdi ana ekrandaki Ninni\'yi aç');
+};
+A.obRestoreCode = () => { S.rsErr = ''; S.screen = 'restore'; render(); };
+VIEWS.restore = () => `
+  <div class="ob">
+    <div class="center" style="font-size:3rem">📲</div>
+    <p class="q">Kaldığın yerden devam</p>
+    <p class="muted">Safari'deki (ya da eski telefondaki) Ninni'de: <b>Ben → "Başka cihaza taşı"</b> → kodu kopyala, buraya yapıştır.</p>
+    <textarea class="in" id="rsCode" rows="3" placeholder="NINNI-…" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+    ${S.rsErr ? `<p class="small" style="color:var(--deep)">${esc(S.rsErr)}</p>` : ''}
+    <button class="btn block" data-act="restoreDo" id="rsGo">Devam</button>
+    <button class="link center" data-act="joinCancel">${t('back')}</button>
+  </div>`;
+A.restoreDo = async () => {
+  const raw = ($('#rsCode').value || '').trim().replace(/^NINNI-/i, '').replace(/\s/g, '');
+  let token = ''; try { token = atob(raw); } catch (e) { }
+  if (!token) { S.rsErr = 'Kod eksik görünüyor; tamamını yapıştırdığından emin ol.'; return render(); }
+  const go = $('#rsGo'); go.disabled = true; go.textContent = '…';
+  try {
+    const { data, error } = await S.sb.auth.refreshSession({ refresh_token: token });
+    if (error || !data.session) throw error || new Error('no session');
+    S.session = data.session;
+    const mem = await findMembership();
+    if (!mem) { S.rsErr = 'Bu hesaba bağlı bir aile bulamadık.'; return render(); }
+    await enterAs(mem); toast('Hoş geldin 🤍 Her şey yerinde.');
+  } catch (e) { console.warn(e); S.rsErr = 'Bu kod çalışmadı. Safari\'de "Başka cihaza taşı"dan yeni bir kod alıp hemen yapıştırmayı dener misin?'; render(); }
 };
 
 /* ══════════════════════════ DAVETLE KATILMA ══════════════════════════ */
@@ -1316,7 +1372,11 @@ function agoCard() {
   return '';
 }
 function installCard() {
-  if (isStandalone() || S.prefs.installHide || !S.entries.size) return '';
+  if (isStandalone()) return '';
+  if (isIOS && S.sb && !S.local) return `<div class="card" style="border:2px solid var(--accent)"><h3>📲 Ninni'yi ana ekrana taşı</h3>
+    <p class="small">Bildirimler ve anıların güvenliği için Ninni ana ekrandan açılmalı. Önce Paylaş → "Ana Ekrana Ekle", sonra buradaki her şeyi tek kodla oraya taşı.</p>
+    <button class="btn sm" style="margin-top:10px" data-act="transfer">Taşıma kodunu al</button></div>`;
+  if (S.prefs.installHide || !S.entries.size) return '';
   return `<div class="card soft"><h3>${t('install_t')}</h3><p class="small">${isIOS ? t('install_ios') : t('install_and')}</p>
     <div class="row" style="margin-top:10px">${!isIOS && S.bip ? `<button class="btn sm" data-act="install">${t('install_btn')}</button>` : ''}<button class="link small" data-act="hide" data-k="installHide">${t('later')}</button></div></div>`;
 }
@@ -2196,6 +2256,7 @@ function settingsHTML() {
   <div class="card"><h3>💾 Anılar</h3>
     <p class="muted small">${esc(t('photo_note', { name: TR.gen(TR.cap(babyName())) }))}</p>
     <div class="row wrap" style="gap:8px;margin-top:12px"><button class="btn sm" data-act="exportAll">Anıları indir</button>${isParent() ? `<button class="btn sm ghost" data-act="importAll">İçe aktar</button>` : ''}</div>
+    ${S.sb && !S.local ? `<div class="hr"></div><p class="small">Ana ekrana ya da yeni bir telefona geçerken hesabını yanında götür.</p><button class="btn sm ghost" style="margin-top:8px" data-act="transfer">📲 Başka cihaza taşı</button>` : ''}
     ${S.sb && CONFIG.GOOGLE && S.session?.user?.is_anonymous ? `<div class="hr"></div><p class="small">${t('link_p')}</p><button class="btn sm" data-act="linkGoogle">${t('link_btn')}</button>` : S.session?.user && !S.session.user.is_anonymous ? `<div class="hr"></div><p class="small muted">🔐 Hesabın Google ile bağlı.</p>` : ''}
   </div>
   <p class="muted tiny center">Ninni ${APP_VERSION} · ${t('appSub')} · Analitik yok, reklam yok. Veriler sadece ailenle senin aranda.</p>
