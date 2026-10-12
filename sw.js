@@ -1,5 +1,5 @@
 // Ninni service worker — uygulama kabuğu offline çalışır; Supabase istekleri hiç önbelleğe alınmaz.
-const VERSION = 'ninni-v1.0.0';
+const VERSION = 'ninni-v1.1.0';
 const SHELL = ['./', 'index.html', 'manifest.json', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 const CDN = /^https:\/\/(cdn\.jsdelivr\.net|fonts\.googleapis\.com|fonts\.gstatic\.com)\//;
 
@@ -9,6 +9,23 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
+// Hatırlatıcı bildirimleri (sunucudaki "ninni-remind" fonksiyonundan)
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Ninni', {
+    body: d.body || '', tag: d.tag || 'ninni', renotify: true,
+    icon: 'icon-192.png', badge: 'icon-192.png', data: { url: d.url || './' }
+  }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    for (const c of list) if ('focus' in c) return c.focus();
+    return self.clients.openWindow((e.notification.data && e.notification.data.url) || './');
+  }));
+});
+
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;

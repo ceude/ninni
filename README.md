@@ -19,6 +19,16 @@ Dosyalar: `index.html` (tüm uygulama), `sw.js`, `manifest.json`, ikonlar, `supa
 > Supabase bilgileri boşken uygulama tamamen telefonda çalışır. Bilgiler sonradan eklenince
 > o güne kadarki her şey (fotoğraflar dahil) otomatik olarak aileye taşınır.
 
+## 1b · Hatırlatıcı bildirimleri (demir vb.)
+
+1. SQL Editor → `supabase/02-hatirlatici.sql` → Run.
+2. Edge Functions → Deploy a new function → **Via Editor** → adı `ninni-remind` → `supabase/functions/ninni-remind/index.ts` içeriğini yapıştır → Deploy.
+   Fonksiyonun ayarlarında **Verify JWT** kapalı olmalı. Fonksiyon kendi `x-cron-secret` başlığını kontrol eder.
+3. Edge Functions → Secrets: `VAPID_PUBLIC`, `VAPID_PRIVATE`, `VAPID_SUBJECT`, `CRON_SECRET` (değerler GitHub'a konmaz).
+4. SQL Editor → saatlik cron (pg_cron + pg_net) ile fonksiyonu her saat başı çağır.
+5. Uygulamada: Bebek sekmesi → 💊 Hatırlatıcılar → ekle. **Her ebeveyn** kendi telefonunda "Bildirimleri aç"a dokunur.
+   iPhone'da bildirim yalnızca ana ekrana eklenmiş Ninni'de çalışır (iOS 16.4+).
+
 ## 2 · GitHub Pages
 
 Repo (ör. `ceude/ninni`) → bu dosyaları köke koy → Settings → Pages → Branch: `main` / root.
