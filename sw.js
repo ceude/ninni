@@ -1,5 +1,5 @@
 // Ninni service worker — uygulama kabuğu offline çalışır; Supabase istekleri hiç önbelleğe alınmaz.
-const VERSION = 'ninni-v1.2.1';
+const VERSION = 'ninni-v1.2.2';
 const SHELL = ['./', 'index.html', 'manifest.json', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 const CDN = /^https:\/\/(cdn\.jsdelivr\.net|fonts\.googleapis\.com|fonts\.gstatic\.com)\//;
 

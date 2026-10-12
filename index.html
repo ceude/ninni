@@ -230,7 +230,7 @@ const CONFIG = {
   VAPID_PUBLIC: 'BGf6f0QkJEnf1MhJ-mp8N5rosyh45ZPmUiHFYPTMGklqzU1PNe9f5f_LBZJpNXhP9wAoNF111jF0NeBE8sA-bRc', // push bildirim açık anahtarı
   COUNTRY: 'DE'          // U-muayeneleri & destek kaynakları için varsayılan
 };
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.2.2';
 
 /* ══════════════════════════ METİNLER (TR) ══════════════════════════
    Tüm görünür metinler burada; İngilizce sonradan aynı anahtarlarla eklenecek. */
@@ -607,12 +607,21 @@ async function compressImage(fileOrBlob, max = 1600, q = .82) {
 }
 /* Fotoğraflar IndexedDB'de Blob olarak DEĞİL ham veri (ArrayBuffer) olarak saklanır: iOS'ta ana ekran
    uygulaması yeniden açılınca saklı Blob'lar okunamaz hale gelebiliyor ("WebKitBlobResource error"). */
-async function putBlob(path, blob) { await IDB.put('blobs', { type: blob.type || 'image/jpeg', buf: await blob.arrayBuffer() }, path); }
+const DIAG = { localErr: 0, putErr: 0, dlErr: 0, dlOk: 0, last: '' };
+const diagNote = (k, e) => { DIAG[k]++; DIAG.last = `${k}: ${e?.message || e?.name || e}`; };
+async function putBlob(path, blob) {
+  try { await IDB.put('blobs', { type: blob.type || 'image/jpeg', buf: await blob.arrayBuffer() }, path); return true; }
+  catch (e) { diagNote('putErr', e); return false; } // telefona yazılamasa da fotoğraf gösterilir
+}
 async function localBlob(path) {
-  const v = await IDB.get('blobs', path); if (!v) return null;
-  if (v.buf) return new Blob([v.buf], { type: v.type || 'image/jpeg' });
-  try { const buf = await v.arrayBuffer(); if (!buf.byteLength) throw 0; await IDB.put('blobs', { type: v.type || 'image/jpeg', buf }, path); return new Blob([buf], { type: v.type || 'image/jpeg' }); }
-  catch (e) { await IDB.del('blobs', path); return null; } // eski biçimde ve bozulmuş: sil, sunucudan yeniden gelsin
+  let v;
+  try { v = await IDB.get('blobs', path); } catch (e) { diagNote('localErr', e); try { await IDB.del('blobs', path); } catch (_) { } return null; }
+  if (!v) return null;
+  try {
+    if (v.buf) { if (!v.buf.byteLength) throw new Error('boş'); return new Blob([v.buf], { type: v.type || 'image/jpeg' }); }
+    const buf = await v.arrayBuffer(); if (!buf.byteLength) throw new Error('boş');
+    await putBlob(path, new Blob([buf], { type: v.type || 'image/jpeg' })); return new Blob([buf], { type: v.type || 'image/jpeg' });
+  } catch (e) { diagNote('localErr', e); try { await IDB.del('blobs', path); } catch (_) { } return null; } // bozuk: sil, sunucudan gelsin
 }
 async function storePhoto(blob) {
   const path = `${S.family}/${uuid()}.jpg`;
@@ -622,23 +631,51 @@ async function storePhoto(blob) {
   return path;
 }
 async function remoteBlob(path) {
-  if (!S.sb || !S.online) return null;
-  const { data } = await S.sb.storage.from('ninni').download(path);
-  if (data?.size) { await putBlob(path, data); return data; }
-  return null;
+  if (!S.sb) return null;
+  try {
+    const { data, error } = await S.sb.storage.from('ninni').download(path);
+    if (error) throw error;
+    if (!data?.size) throw new Error('boş dosya');
+    DIAG.dlOk++;
+    const blob = new Blob([await data.arrayBuffer()], { type: data.type || 'image/jpeg' });
+    await putBlob(path, blob); return blob;
+  } catch (e) { diagNote('dlErr', e); return null; }
 }
 async function photoBlob(path) { if (!path) return null; return (await localBlob(path)) || remoteBlob(path); }
 async function photoURL(path) {
   if (!path) return null;
   if (photoCache.has(path)) return photoCache.get(path);
-  const b = await photoBlob(path); if (!b) return null;
+  const b = await photoBlob(path).catch(e => { diagNote('localErr', e); return null; }); if (!b) return null;
   const u = URL.createObjectURL(b); photoCache.set(path, u); return u;
 }
 async function photoRepair(path) { // görüntü açılamadı: yerel kopyayı at, sunucudan yeniden indir
-  photoCache.delete(path); await IDB.del('blobs', path);
+  photoCache.delete(path); try { await IDB.del('blobs', path); } catch (_) { }
   const b = await remoteBlob(path); if (!b) return null;
   const u = URL.createObjectURL(b); photoCache.set(path, u); return u;
 }
+
+/* ── tanılama: Ben → en alttaki sürüm yazısına 5 kez dokun */
+async function diagOpen(_, el) {
+  el.dataset.n = (+el.dataset.n || 0) + 1; if (+el.dataset.n < 5) return; el.dataset.n = 0;
+  const withPhoto = [...S.entries.values()].filter(e => e.photo_path && !e.deleted);
+  let local = 0, localBad = 0; for (const e of withPhoto.slice(0, 60)) { const b = await localBlob(e.photo_path).catch(() => null); b ? local++ : localBad++; }
+  const sample = withPhoto[0]?.photo_path; let test = '—';
+  if (sample) { try { const { data, error } = await S.sb.storage.from('ninni').download(sample); test = error ? 'HATA: ' + (error.message || JSON.stringify(error)) : `ok (${data?.size} bayt, ${data?.type})`; } catch (e) { test = 'HATA: ' + e.message; } }
+  const { data: { session } } = S.sb ? await S.sb.auth.getSession() : { data: {} };
+  const outbox = (await IDB.allWithKeys('outbox')).length;
+  openSheet(`<h2>🔧 Tanılama</h2><pre style="white-space:pre-wrap;font-size:.78rem;background:var(--soft);padding:12px;border-radius:12px">${esc([
+    `sürüm: ${APP_VERSION} · ${isStandalone() ? 'ana ekran' : 'tarayıcı'} · ${navigator.onLine ? 'çevrimiçi' : 'çevrimdışı'}`,
+    `oturum: ${session ? 'var (' + session.user.id.slice(0, 8) + ')' : 'YOK'} · üye: ${meId()?.slice(0, 8)}`,
+    `aile: ${S.family?.slice(0, 8)} · kayıt: ${S.entries.size} · bekleyen gönderim: ${outbox}`,
+    `fotoğraflı kayıt: ${withPhoto.length} · telefonda okunan: ${local} · okunamayan: ${localBad}`,
+    `örnek indirme: ${test}`,
+    `örnek yol: ${sample || '—'}`,
+    `sayaçlar: indirildi ${DIAG.dlOk} · indirme hatası ${DIAG.dlErr} · okuma hatası ${DIAG.localErr} · yazma hatası ${DIAG.putErr}`,
+    `son hata: ${DIAG.last || '—'}`,
+  ].join('\n'))}</pre><p class="muted small">Bu ekranın görüntüsünü Claude'a gönderebilirsin; kişisel veri içermez.</p>
+  <button class="btn ghost block" data-act="diagReset">Telefondaki fotoğraf önbelleğini temizle</button>`);
+}
+async function diagReset() { try { await IDB.clear('blobs'); } catch (e) { } photoCache.clear(); closeSheet(); toast('Önbellek temizlendi; fotoğraflar sunucudan yeniden gelecek'); render(); }
 function hydrate(root = document) {
   $$('[data-photo]', root).forEach(async el => {
     const p = el.dataset.photo; if (!p || el.dataset.done === p) return;
@@ -830,6 +867,7 @@ function updateNight() {
 
 /* ══════════════════════════ ARAYÜZ ALTYAPISI ══════════════════════════ */
 const A = {}; // eylemler: data-act="isim"
+A.diag = diagOpen; A.diagReset = diagReset;
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   const fn = A[el.dataset.act]; if (!fn) return;
@@ -2468,7 +2506,7 @@ function settingsHTML() {
     ${S.sb && CONFIG.GOOGLE && S.session?.user?.is_anonymous ? `<div class="hr"></div><p class="small">${t('link_p')}</p><button class="btn sm" data-act="linkGoogle">${t('link_btn')}</button>` : S.session?.user && !S.session.user.is_anonymous ? `<div class="hr"></div><p class="small muted">🔐 Hesabın Google ile bağlı.</p>` : ''}
   </div>
   ${accountCard()}
-  <p class="muted tiny center">Ninni ${APP_VERSION} · ${t('appSub')} · Analitik yok, reklam yok. Veriler sadece ailenle senin aranda.</p>`;
+  <p class="muted tiny center" data-act="diag" style="cursor:default">Ninni ${APP_VERSION} · ${t('appSub')} · Analitik yok, reklam yok. Veriler sadece ailenle senin aranda.</p>`;
 }
 document.addEventListener('change', async e => {
   const el = e.target; const k = el.dataset?.sw; if (!k) return;
