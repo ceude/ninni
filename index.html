@@ -1008,7 +1008,11 @@ A.addDevice = async (_, btn) => {
   if (btn) { btn.disabled = true; }
   let code;
   try { code = (await deviceApi({ action: 'create' }, session.access_token)).code; }
-  catch (e) { console.warn(e); if (btn) btn.disabled = false; return toast('Şu an kod alınamadı; biraz sonra tekrar deneyelim'); }
+  catch (e) {
+    console.warn(e); if (btn) btn.disabled = false;
+    if (String(e.message) === 'auth') return sessionDead();
+    return toast('Şu an kod alınamadı (' + e.message + '); biraz sonra tekrar deneyelim');
+  }
   if (btn) btn.disabled = false;
   const pretty = code.slice(0, 4) + '-' + code.slice(4);
   openSheet(`<h2>📲 Cihaz ekle</h2>
@@ -1020,6 +1024,21 @@ A.addDevice = async (_, btn) => {
       <div class="row"><span class="pill">3</span><span>Bu kodu yaz → aynı hesap orada da açılır</span></div>
     </div>
     <p class="muted tiny">Kod senin hesabına giriş sağlar; sadece kendi cihazlarında kullan, kimseyle paylaşma. Eşini ya da sevdiklerini eklemek için "Davet et"i kullan.</p>`);
+};
+function sessionDead() { // bu cihazdaki oturum sunucuda kapanmış (ör. eski "taşı" ile başka cihaza geçmiş)
+  openSheet(`<div class="center" style="font-size:2.4rem">🔑</div>
+    <h2 class="center">Bu cihazın oturumu kapanmış</h2>
+    <p class="muted center">Anıların yerinde, sadece bu cihazın yeniden bağlanması gerekiyor.</p>
+    <div class="card soft stack small">
+      <div class="row"><span class="pill">1</span><span>Ninni'nin açık olduğu diğer cihazında (ör. bilgisayar): <b>Ben → Cihaz ekle</b></span></div>
+      <div class="row"><span class="pill">2</span><span>Aşağıdaki düğmeye dokun ve çıkan kodu yaz</span></div>
+    </div>
+    <button class="btn block" data-act="reconnect">Kodu girmeye geç</button>`);
+}
+A.reconnect = async () => {
+  closeSheet(); await clearFamilyCache().catch(() => { });
+  try { await S.sb.auth.signOut({ scope: 'local' }); } catch (e) { }
+  await resetLocal(); S.me = null; S.family = null; S.rsErr = ''; S.screen = 'restore'; render();
 };
 A.obRestoreCode = () => { S.rsErr = ''; S.screen = 'restore'; render(); setTimeout(() => $('#rsCode')?.focus(), 300); };
 VIEWS.restore = () => `

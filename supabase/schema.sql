@@ -3,7 +3,9 @@
 -- SQL Editor'de bir kez çalıştır. Tekrar çalıştırmak güvenlidir (idempotent).
 
 create schema if not exists ninni;
-grant usage on schema ninni to anon, authenticated;
+grant usage on schema ninni to anon, authenticated, service_role;
+alter default privileges in schema ninni grant all on tables to service_role;
+alter default privileges in schema ninni grant all on functions to service_role;
 
 -- ───────────────────────── tablolar
 create table if not exists ninni.families (
