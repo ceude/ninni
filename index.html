@@ -1381,17 +1381,6 @@ function letterCard() {
   if (daysBetween(addMonths(birth, n), new Date()) > 6) return '';
   return `<div class="card" data-act="openLetter" data-n="${n}" style="cursor:pointer;background:linear-gradient(160deg,#fbf6ec,var(--card))"><div class="row"><div style="font-size:2.2rem">💌</div><div class="grow"><h3>${esc(t('letter_ready', { name: TR.dat(TR.cap(babyName())), n }))}</h3><p class="muted small">Bu ayın anları, ilkleri ve küçük sayıları bir mektupta.</p></div></div></div>`;
 }
-function mphotoCard() {
-  const b = baby(); const birth = birthOf(b); if (!birth || b.status !== 'born' || !isParent()) return '';
-  const m = monthsOld(birth);
-  for (const n of [m, m + 1]) {
-    if (n < 1) continue; const md = addMonths(birth, n); const off = daysBetween(md, new Date());
-    if (off < -2 || off > 6) continue;
-    if (E('mphoto').some(e => e.data.month === n)) continue;
-    return `<div class="card row"><div style="font-size:2rem">📸</div><div class="grow"><h3>${t('mphoto_t')} · ${n}. ay</h3><p class="muted small">${t('mphoto_p')}</p></div><button class="btn sm" data-act="mphoto" data-n="${n}">Çek</button></div>`;
-  }
-  return '';
-}
 function momentCard() {
   const today = ymd(new Date());
   if (!isParent()) return `<div class="card"><h3>${esc(t('loved_note', { name: TR.dat(TR.cap(babyName())) }))} 🤍</h3><textarea class="in hand" id="noteText" placeholder="${t('loved_note_ph')}"></textarea><button class="btn block" style="margin-top:10px" data-act="saveNote">${t('save')}</button></div>`;
@@ -1403,7 +1392,7 @@ function momentCard() {
 }
 function agoCard() {
   const rnd = seeded(ymd(new Date())); if (rnd() > .7) return '';
-  const kinds = ['moment', 'first', 'mphoto', 'note', 'ultra'];
+  const kinds = ['moment', 'first', 'mphoto', 'frame', 'note', 'ultra'];
   for (const k of [12, 6, 3, 2, 1]) {
     const day = ymd(addMonths(new Date(), -k));
     const found = kinds.flatMap(x => E(x)).filter(e => ymd(e.ts) === day && e.data?.key !== 'born');
@@ -1461,25 +1450,26 @@ VIEWS.today = () => {
     <button class="icon-btn" data-act="toggleNight" aria-label="Gece modu">${ICON.moon}</button></div>
   ${upcomingAppts()}
   ${doseCards()}
+  ${frameCard('top')}
   ${awakeCard()}
   ${heroCard()}
   ${b?.status === 'born' && canSeeCare() ? `${runningCards()}<div class="card">${quickButtons()}${careSummary()}${isParent() ? `<div class="row" style="margin-top:12px;gap:8px"><button class="btn ghost sm grow" data-act="noise">🎶 ${t('noise')}</button><button class="btn ghost sm grow" data-act="breathe">🫧 ${t('breathe')}</button>${S.prefs.potty ? `<button class="btn ghost sm grow" data-act="potty">🌟 Tuvalet</button>` : ''}</div>` : ''}</div>` : ''}
   ${pregnancyCards()}
   ${kirkCard()}
   ${letterCard()}
-  ${mphotoCard()}
   ${momentCard()}
   ${agoCard()}
   ${storyCard()}
   ${checkinCard()}
   ${installCard()}
   ${linkCard()}
+  ${frameCard('bottom')}
   ${b?.status === 'born' && isParent() ? todayCareList() : ''}
   ${!isParent() ? lovedExtras() : ''}
   ${S.local && !S.sb ? '' : !S.online ? `<p class="center muted tiny">${t('offline')}</p>` : ''}`;
 };
 function lovedExtras() {
-  const mem = ['moment', 'first', 'note', 'mphoto'].flatMap(k => E(k)).sort((a, b) => new Date(b.ts) - new Date(a.ts)).slice(0, 4);
+  const mem = ['moment', 'first', 'note', 'mphoto', 'frame'].flatMap(k => E(k)).sort((a, b) => new Date(b.ts) - new Date(a.ts)).slice(0, 4);
   return `${mem.length ? `<div class="card"><h3>Son anlar</h3>${mem.map(memItem).join('<div class="hr"></div>')}</div>` : ''}
   <div class="card row" data-act="tab" data-t="child" style="cursor:pointer"><div style="font-size:2rem">🎁</div><div class="grow"><h3>İstek listesi</h3><p class="muted small">${esc(TR.dat(TR.cap(babyName())))} küçük bir sürpriz?</p></div></div>`;
 }
@@ -1606,7 +1596,7 @@ A.pickPhoto = async d => {
 };
 
 /* ══════════════════════════ ANILAR ══════════════════════════ */
-const MEM_KINDS = ['moment', 'note', 'first', 'mphoto', 'ultra', 'heart', 'story'];
+const MEM_KINDS = ['moment', 'note', 'first', 'mphoto', 'frame', 'ultra', 'heart', 'story'];
 const canEdit = e => e.subject === 'self' ? e.owner_id === meId() : isParent() || (e.owner_id === meId() && e.kind === 'note');
 function whoLabel(uid) {
   const m = S.members.find(x => x.user_id === uid); if (!m) return '';
@@ -1620,6 +1610,7 @@ function memItem(e) {
   if (e.kind === 'note') { tag = `${esc(whoLabel(e.owner_id))} yazdı`; body = `<div class="txt">${esc(e.data.text)}</div>`; }
   if (e.kind === 'first') { const m = firstMeta(e.data.key); tag = 'İlk'; body = `<div style="font-weight:800;font-size:1.1rem">${m ? m[2] + ' ' : ''}${esc(e.data.title || m?.[1] || '')}</div>${e.data.text ? `<div class="txt">${esc(e.data.text)}</div>` : ''}`; }
   if (e.kind === 'mphoto') { tag = 'Aylık fotoğraf'; body = `<div style="font-weight:800">${e.data.month}. ay</div>`; }
+  if (e.kind === 'frame') { tag = 'Büyüme karesi'; body = `<div style="font-weight:800">${e.data.week || frameWeek(e.ts)}. hafta${e.data.month ? ' · ' + e.data.month + '. ay' : ''}</div>`; }
   if (e.kind === 'ultra') { tag = 'Ultrason'; body = `${e.data.week ? `<div style="font-weight:800">${e.data.week}. hafta</div>` : ''}${e.data.text ? `<div class="txt">${esc(e.data.text)}</div>` : ''}`; }
   if (e.kind === 'heart') { tag = 'Kalp atışı 💓'; body = `${e.data.bpm ? `<div style="font-weight:800">${esc(e.data.bpm)} atım</div>` : ''}${e.data.text ? `<div class="txt">${esc(e.data.text)}</div>` : ''}`; }
   if (e.kind === 'story') { tag = 'Doğum hikâyesi'; body = `<div class="txt">${esc(whoLabel(e.owner_id))} anlattı</div>`; }
@@ -1636,7 +1627,6 @@ VIEWS.mem = () => {
   const groups = []; for (const e of items) { const k = ymd(e.ts); const g = groups[groups.length - 1]; if (g?.k === k) g.items.push(e); else groups.push({ k, items: [e] }); }
   const months = birth && b.status === 'born' ? monthsOld(birth) : 0;
   const pregLetter = birth && ['moment', 'ultra', 'heart', 'first'].flatMap(k => E(k)).some(e => new Date(e.ts) < birth && e.data?.key !== 'born');
-  const mph = E('mphoto').sort((a, b) => a.data.month - b.data.month);
   return `
   <div class="top"><h1 class="grow">${t('tab_mem')}</h1></div>
   ${isParent() ? `<div class="chips" style="margin-bottom:14px">
@@ -1647,8 +1637,7 @@ VIEWS.mem = () => {
     ${pregLetter ? `<button class="chip" data-act="openLetter" data-n="preg">${t('letter_preg')}</button>` : ''}
     ${Array.from({ length: months }, (_, i) => `<button class="chip" data-act="openLetter" data-n="${i + 1}">${i + 1}. ay</button>`).join('')}</div>
     ${months ? `<button class="btn line block sm" style="margin-top:12px" data-act="book">📚 Yıl kitabı (baskıya hazır PDF)</button>` : ''}</div>` : ''}
-  ${mph.length ? `<div class="card"><div class="row between"><h3>📸 Aylık fotoğraflar</h3>${mph.length > 1 ? `<button class="btn sm ghost" data-act="collage">Kolaj</button>` : ''}</div>
-    <div class="grid3" style="margin-top:8px">${mph.map(e => `<div class="ph" data-photo="${e.photo_path}" data-act="openMem" data-id="${e.id}"></div>`).join('')}</div></div>` : ''}
+  ${framesArchive()}
   <div class="chips">${[['all', 'Hepsi'], ['moment', 'Anlar'], ['first', 'İlkler'], ['photo', 'Fotoğraflar']].map(([k, l]) => `<button class="chip ${filter === k ? 'on' : ''}" data-act="memFilter" data-f="${k}">${l}</button>`).join('')}</div>
   ${filter === 'photo' ? `<div class="grid3" style="margin-top:14px">${items.map(e => `<div class="ph" data-photo="${e.photo_path}" data-act="openMem" data-id="${e.id}"></div>`).join('')}</div>`
     : groups.length ? groups.map(g => `<div class="day-h">${dayLabel(parseYmd(g.k))}</div><div class="card">${g.items.map(memItem).join('<div class="hr"></div>')}</div>`).join('')
@@ -1869,7 +1858,7 @@ function buildLetter(n) {
   for (const e of lnotes) { const m = S.members.find(x => x.user_id === e.owner_id); P.push(`${e.data.text}\n— ${m?.parent_kind === 'anne' ? 'Annen' : m?.parent_kind === 'baba' ? 'Baban' : m?.display_name || ''}`); }
   P.push(pick(['Seni her gün biraz daha çok seviyoruz.', 'İyi ki geldin, iyi ki bizimlesin.', 'Uykusuz gecelerin en güzel sebebi sensin.', 'Büyüdükçe kalbimiz de büyüyor.'], rnd));
   const photos = [];
-  const mp = E('mphoto').find(e => e.data.month == n); if (mp) photos.push(mp.photo_path);
+  const mp = monthlySeries().find(m => m.month == n)?.e; if (mp) photos.push(mp.photo_path);
   [...E('first'), ...E('moment'), ...E('ultra')].filter(e => inR(e) && e.photo_path && !photos.includes(e.photo_path)).slice(0, 3).forEach(e => photos.push(e.photo_path));
   return { title: preg ? `${TR.dat(name)} · Seni beklerken` : `${TR.dat(name)} ${n}. ay mektubu`, paras: P, sig: parentsSig(), photos, n };
 }
@@ -1894,49 +1883,213 @@ A.letterNote = async d => {
   toast('Mektuba eklendi 🤍'); A.openLetter({ n: d.n });
 };
 
-/* ══════════════════════════ AYLIK FOTOĞRAF + KAMERA ══════════════════════════ */
-A.mphoto = async d => {
-  const n = +d.n; const prev = E('mphoto').filter(e => e.data.month < n).sort((a, b) => b.data.month - a.data.month)[0];
+/* ══════════════════════════ BÜYÜME KARELERİ (çekim yardımcısı + değişim videosu) ══════════════════════════
+   Takvim yok, "kaçırma" yok: kart hep durur. Her kare haftalık seriye girer; ay dönümüne ±3 gün yakınsa
+   aylık seriye de işaretlenir. Kareler 9:16, 1125×2000 px saklanır (videoda keskin olsun diye). */
+const FRAME_W = 1125, FRAME_H = 2000, FRAME_URGENT_DAYS = 10;
+const frames = () => [...E('frame'), ...E('mphoto')].sort((a, b) => new Date(a.ts) - new Date(b.ts)); // eski → yeni
+const frameWeek = ts => Math.floor(daysBetween(birthOf(), ts) / 7) + 1;
+function frameMonth(ts) {
+  const birth = birthOf();
+  for (let n = 1; n <= 72; n++) { const off = daysBetween(addMonths(birth, n), ts); if (Math.abs(off) <= 3) return n; if (off < -3) break; }
+  return null;
+}
+const frameMonthOf = e => e.kind === 'mphoto' ? e.data.month : e.data.month || null;
+function monthlySeries() { const m = new Map(); for (const e of frames()) { const n = frameMonthOf(e); if (n) m.set(n, e); } return [...m].sort((a, b) => a[0] - b[0]).map(([month, e]) => ({ month, e })); }
+const fmtNum = d => { d = new Date(d); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`; };
+
+function frameCard(position) {
+  const b = baby(); if (!isParent() || b?.status !== 'born') return '';
+  const fr = frames(); const last = fr[fr.length - 1];
+  const days = last ? daysBetween(last.ts, new Date()) : null;
+  const urgent = !last || days >= FRAME_URGENT_DAYS;
+  if ((position === 'top') !== urgent) return '';
+  const when = !last ? 'Henüz ilk kare yok. İlkini bugün çekebilirsin; her kare değişim videosuna eklenir.'
+    : days === 0 ? `En son bugün çekildi · ${fr.length} kare` : days === 1 ? `En son dün çekildi · ${fr.length} kare`
+    : `En son ${days} gün önce (${fmtNum(last.ts)}) çekildi`;
+  return `<div class="card ${urgent ? '' : 'soft'} row">${last ? `<div class="avatar" style="border-radius:12px;width:46px;height:62px" data-photo="${last.photo_path}"></div>` : `<div style="font-size:1.8rem">📸</div>`}
+    <div class="grow"><h3 style="${urgent ? '' : 'font-size:.95rem'}">Büyüme karesi</h3><p class="muted small">${when}</p></div>
+    <button class="btn sm ${urgent ? '' : 'ghost'}" data-act="frameShoot">Çek</button></div>`;
+}
+
+A.frameShoot = async () => {
+  const fr = frames(); const prev = fr[fr.length - 1];
   const ghost = prev ? await photoURL(prev.photo_path) : null;
-  const blob = await openCamera(ghost); if (!blob) return;
-  const small = await compressImage(blob);
-  const id = await detId(S.babyId + ':mphoto:' + n);
-  await saveEntry({ id, kind: 'mphoto', ts: nowISO(), data: { month: n }, photo_path: await storePhoto(small) });
-  toast(`${n}. ay fotoğrafı saklandı 📸`); render(); firstPhotoNotice();
+  const shot = await openCamera(ghost); if (!shot) return;
+  const aligned = await alignEditor(shot, ghost); if (!aligned) return;
+  const ts = nowISO(); const week = frameWeek(ts), month = frameMonth(ts);
+  await saveEntry({ kind: 'frame', ts, data: { week, month }, photo_path: await storePhoto(aligned) });
+  toast(`${week}. hafta karesi saklandı 📸${month ? ' · ' + month + '. ay' : ''}`); render(); firstPhotoNotice();
 };
+
+const GUIDES = `<svg class="guides" viewBox="0 0 90 160" preserveAspectRatio="none" aria-hidden="true">
+  <g fill="none" stroke="#fff" stroke-opacity=".75" stroke-width=".5" stroke-dasharray="2 1.6">
+    <ellipse cx="45" cy="62" rx="21" ry="27"/><line x1="27" y1="58" x2="63" y2="58"/><line x1="45" y1="8" x2="45" y2="152" stroke-opacity=".3"/>
+    <path d="M6 132 Q45 100 84 132"/></g></svg>`;
+function camShell(inner, hint) {
+  return `<style>
+    #cam .stage{position:absolute;left:50%;top:calc(var(--safe-t) + 64px);transform:translateX(-50%);height:calc(100dvh - var(--safe-t) - var(--safe-b) - 212px);aspect-ratio:9/16;max-width:100vw;overflow:hidden;border-radius:18px;background:#111;touch-action:none}
+    #cam .stage video,#cam .stage .shotimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center}
+    #cam .stage .ghost2{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none}
+    #cam .guides{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+    #cam .hint{position:absolute;top:calc(var(--safe-t) + 10px);left:16px;right:16px;text-align:center;color:#fff;font-weight:700;font-size:.82rem;line-height:1.3}
+    #cam .op{position:absolute;left:24px;right:24px;bottom:calc(var(--safe-b) + 112px);display:flex;align-items:center;gap:10px;color:#fff;font-size:.8rem}
+    #cam .op input{flex:1}
+  </style><div class="hint">${hint}</div>${inner}`;
+}
 async function openCamera(ghostURL) {
   if (!navigator.mediaDevices?.getUserMedia) { const [f] = await pickFiles(); return f || null; }
-  let stream, facing = 'environment';
+  let stream, facing = S.prefs.camFacing || 'environment';
   const cam = $('#cam');
   return new Promise(async resolve => {
     const done = v => { stream?.getTracks().forEach(t => t.stop()); cam.classList.remove('open'); cam.innerHTML = ''; resolve(v); };
-    cam.innerHTML = `<video playsinline autoplay muted></video>${ghostURL ? `<img class="ghost" src="${ghostURL}">` : ''}<div class="frame"></div>
-      <div style="position:absolute;top:calc(var(--safe-t) + 16px);left:0;right:0;text-align:center;color:#fff;font-weight:700;text-shadow:0 1px 6px rgba(0,0,0,.5)">${ghostURL ? 'Geçen ayki karenin hizasına yerleştir' : 'Her ay aynı köşede, aynı açıyla'}</div>
-      <div class="bar"><button data-c="x">Vazgeç</button><button class="shot" data-c="shot" aria-label="Çek"></button><button data-c="flip">↺</button></div>
-      <div style="position:absolute;bottom:calc(var(--safe-b) + 120px);left:0;right:0;text-align:center"><button data-c="gal" style="color:#fff;text-decoration:underline">Galeriden seç</button></div>`;
+    cam.innerHTML = camShell(`<div class="stage"><video playsinline autoplay muted></video>${ghostURL ? `<img class="ghost2" src="${ghostURL}" style="opacity:.35">` : ''}${GUIDES}</div>
+      ${ghostURL ? `<div class="op"><span>önceki kare</span><input type="range" min="0" max="80" value="35" id="ghOp"></div>` : ''}
+      <div class="bar"><button data-c="x">Vazgeç</button><button class="shot" data-c="shot" aria-label="Çek"></button><button data-c="flip">↺ Kamera</button></div>
+      <div style="position:absolute;bottom:calc(var(--safe-b) + 150px);left:0;right:0;text-align:center"><button data-c="gal" style="color:#fff;text-decoration:underline;font-size:.85rem">Galeriden seç</button></div>`,
+      ghostURL ? 'Önceki karenin üstüne otur: yüz ovalin içinde, gözler çizgide' : 'Yüz ovalin içinde, gözler çizgide; her seferinde aynı köşe');
     cam.classList.add('open');
-    const video = $('video', cam);
+    const video = $('video', cam), stage = $('.stage', cam);
+    $('#ghOp', cam)?.addEventListener('input', e => { $('.ghost2', cam).style.opacity = e.target.value / 100; });
     const start = async () => {
       stream?.getTracks().forEach(t => t.stop());
-      try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1920 } }, audio: false }); video.srcObject = stream; }
+      try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 2560 }, height: { ideal: 1440 } }, audio: false }); video.srcObject = stream; }
       catch (e) { cam.classList.remove('open'); cam.innerHTML = ''; const [f] = await pickFiles(); resolve(f || null); }
     };
     await start();
     cam.onclick = async e => {
       const c = e.target.closest('[data-c]')?.dataset.c; if (!c) return;
       if (c === 'x') done(null);
-      if (c === 'flip') { facing = facing === 'environment' ? 'user' : 'environment'; start(); }
+      if (c === 'flip') { facing = facing === 'environment' ? 'user' : 'environment'; S.prefs.camFacing = facing; savePrefs(); start(); }
       if (c === 'gal') { const [f] = await pickFiles(); done(f || null); }
-      if (c === 'shot') {
-        const vw = video.videoWidth, vh = video.videoHeight, sw = innerWidth, sh = innerHeight;
-        const scale = Math.max(sw / vw, sh / vh), cw = sw / scale, ch = sh / scale; // ekranda görüneni kırp
-        const cv = document.createElement('canvas'); cv.width = Math.round(cw); cv.height = Math.round(ch);
-        cv.getContext('2d').drawImage(video, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 0, 0, cv.width, cv.height);
-        cv.toBlob(b => done(b), 'image/jpeg', .9);
+      if (c === 'shot') { // kutuda (9:16) görüneni birebir al
+        haptic();
+        const vw = video.videoWidth, vh = video.videoHeight, bw = stage.clientWidth, bh = stage.clientHeight;
+        const sc = Math.max(bw / vw, bh / vh), cw = bw / sc, ch = bh / sc;
+        const cv = document.createElement('canvas'); cv.width = FRAME_W; cv.height = FRAME_H;
+        cv.getContext('2d').drawImage(video, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 0, 0, FRAME_W, FRAME_H);
+        cv.toBlob(b => done(b), 'image/jpeg', .92);
       }
     };
   });
 }
+/* Çekimden sonra ince ayar: sürükle (1 parmak), büyüt/küçült (2 parmak); önceki kare silik olarak üstte */
+async function alignEditor(blob, ghostURL) {
+  const url = URL.createObjectURL(blob); const img = await blobImage(blob);
+  const cam = $('#cam');
+  return new Promise(resolve => {
+    let x = 0, y = 0, s = 1; const pts = new Map(); let g0 = null;
+    cam.innerHTML = camShell(`<div class="stage" id="alStage"><img class="shotimg" src="${url}">${ghostURL ? `<img class="ghost2" src="${ghostURL}" style="opacity:.35">` : ''}${GUIDES}</div>
+      ${ghostURL ? `<div class="op"><span>önceki kare</span><input type="range" min="0" max="80" value="35" id="ghOp"></div>` : ''}
+      <div class="bar"><button data-c="x">Vazgeç</button><button data-c="ok" class="btn" style="color:#fff">Kaydet ✓</button><button data-c="reset">Sıfırla</button></div>`,
+      ghostURL ? 'Önceki kareyle hizala · sürükle, iki parmakla büyüt' : 'Ovale göre yerleştir · sürükle, iki parmakla büyüt');
+    cam.classList.add('open');
+    const stage = $('#alStage', cam), shot = $('.shotimg', cam);
+    const apply = () => { shot.style.transform = `translate(${x}px,${y}px) scale(${s})`; };
+    $('#ghOp', cam)?.addEventListener('input', e => { $('.ghost2', cam).style.opacity = e.target.value / 100; });
+    const snapshot = () => { const a = [...pts.values()]; const mid = a.length > 1 ? { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2 } : a[0]; const d = a.length > 1 ? Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) : 0; return { mid, d, x, y, s }; };
+    stage.addEventListener('pointerdown', e => { stage.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); g0 = snapshot(); });
+    stage.addEventListener('pointermove', e => {
+      if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const g = snapshot(); if (!g0 || !g.mid) return;
+      x = g0.x + (g.mid.x - g0.mid.x); y = g0.y + (g.mid.y - g0.mid.y);
+      if (g.d && g0.d) s = Math.max(.6, Math.min(4, g0.s * g.d / g0.d));
+      apply();
+    });
+    const up = e => { pts.delete(e.pointerId); g0 = pts.size ? snapshot() : null; };
+    stage.addEventListener('pointerup', up); stage.addEventListener('pointercancel', up);
+    stage.addEventListener('wheel', e => { e.preventDefault(); s = Math.max(.6, Math.min(4, s * (e.deltaY < 0 ? 1.04 : .96))); apply(); }, { passive: false });
+    const finish = v => { cam.classList.remove('open'); cam.innerHTML = ''; URL.revokeObjectURL(url); resolve(v); };
+    cam.onclick = e => {
+      const c = e.target.closest('[data-c]')?.dataset.c; if (!c) return;
+      if (c === 'x') finish(null);
+      if (c === 'reset') { x = y = 0; s = 1; apply(); }
+      if (c === 'ok') {
+        const k = FRAME_W / stage.clientWidth;
+        const cv = document.createElement('canvas'); cv.width = FRAME_W; cv.height = FRAME_H; const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#f3ede4'; ctx.fillRect(0, 0, FRAME_W, FRAME_H);
+        const cover = Math.max(FRAME_W / img.width, FRAME_H / img.height); const dw = img.width * cover, dh = img.height * cover;
+        ctx.translate(FRAME_W / 2 + x * k, FRAME_H / 2 + y * k); ctx.scale(s, s); ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+        cv.toBlob(b => finish(b), 'image/jpeg', .88);
+      }
+    };
+  });
+}
+
+/* ── değişim videosu: telefonda üretilir (canvas + MediaRecorder), sunucuya hiçbir şey gitmez */
+async function makeTimelapse(items, per, onProg) {
+  await ensureFonts();
+  const W = 1080, H = 1920, c = document.createElement('canvas'); c.width = W; c.height = H; const ctx = c.getContext('2d');
+  const imgs = [];
+  for (const [i, it] of items.entries()) { const b = await photoBlob(it.e.photo_path); if (b) imgs.push({ img: await blobImage(b), label: it.label }); onProg?.(i / items.length * .2, 'Kareler hazırlanıyor…'); }
+  if (imgs.length < 2) throw new Error('en az 2 kare');
+  const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+  if (!mime || !c.captureStream) throw new Error('Bu tarayıcı video kaydını desteklemiyor');
+  const paper = document.createElement('canvas'); paper.width = W; paper.height = H; paperBg(paper.getContext('2d'), W, H, seeded('tl'));
+  const name = TR.cap(babyName());
+  const cover = (im, a = 1) => { const sc = Math.max(W / im.width, H / im.height); ctx.globalAlpha = a; ctx.drawImage(im, (W - im.width * sc) / 2, (H - im.height * sc) / 2, im.width * sc, im.height * sc); ctx.globalAlpha = 1; };
+  const hand = (txt, size, y, color = '#fff', shadow = true) => { ctx.save(); ctx.font = `600 ${size}px Caveat`; ctx.textAlign = 'center'; ctx.fillStyle = color; if (shadow) { ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 18; } ctx.fillText(txt, W / 2, y); ctx.restore(); };
+  const brandMark = () => { ctx.save(); ctx.globalAlpha = .55; ctx.fillStyle = '#fff'; ctx.font = '700 28px Nunito'; ctx.textAlign = 'center'; ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 8; ctx.fillText('ninni', W / 2, H - 60); ctx.restore(); };
+  const fade = Math.min(.3, per * .45), intro = 1.6, outro = 2.2, total = intro + imgs.length * per + outro;
+  const draw = t => {
+    if (t < intro) { ctx.drawImage(paper, 0, 0); hand(name, 150, H / 2 - 20, inkColor(), false); hand('büyüyor…', 90, H / 2 + 100, TEXT_INK, false); ctx.globalAlpha = 1; return; }
+    const tt = t - intro;
+    if (tt < imgs.length * per) {
+      const i = Math.floor(tt / per), local = tt - i * per;
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+      if (i > 0 && local < fade) { cover(imgs[i - 1].img); cover(imgs[i].img, local / fade); } else cover(imgs[i].img);
+      hand(imgs[i].label, 96, H - 170); brandMark(); return;
+    }
+    cover(imgs[imgs.length - 1].img); ctx.fillStyle = 'rgba(251,246,236,.82)'; ctx.fillRect(0, 0, W, H);
+    hand(name, 130, H / 2 - 30, inkColor(), false); hand(imgs[0].label + ' → ' + imgs[imgs.length - 1].label, 70, H / 2 + 70, TEXT_INK, false);
+    ctx.save(); ctx.globalAlpha = .35; ctx.fillStyle = TEXT_INK; ctx.font = '700 30px Nunito'; ctx.textAlign = 'center'; ctx.fillText('ninni', W / 2, H - 60); ctx.restore();
+  };
+  draw(0);
+  const rec = new MediaRecorder(c.captureStream(30), { mimeType: mime, videoBitsPerSecond: 8e6 }); const chunks = [];
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  rec.start(250); const t0 = performance.now();
+  // rAF değil setTimeout: uygulama arka plana geçse de (yavaşlasa da) video yarıda kalmaz
+  await new Promise(res => { const step = () => { const t = (performance.now() - t0) / 1000; draw(Math.min(t, total)); onProg?.(.2 + .8 * Math.min(1, t / total), 'Video oluşuyor…'); if (t >= total) return res(); setTimeout(step, 1000 / 30); }; step(); });
+  await new Promise(r => { rec.onstop = r; rec.stop(); });
+  return new Blob(chunks, { type: mime.split(';')[0] });
+}
+A.frameVideo = () => {
+  const weekly = frames().length, monthly = monthlySeries().length;
+  openSheet(`<h2>🎬 Değişim videosu</h2>
+    <div class="f"><span style="font-weight:700;font-size:.92rem">Seri</span><div class="chips" id="tvS" style="margin-top:8px">
+      <button class="chip on" data-v="w">Haftalık (${weekly} kare)</button>${monthly > 1 ? `<button class="chip" data-v="m">Aylık (${monthly} kare)</button>` : ''}</div></div>
+    <div class="f"><span style="font-weight:700;font-size:.92rem">Kare başına</span><div class="chips" id="tvP" style="margin-top:8px">
+      ${[['0.3', 'Hızlı'], ['0.6', 'Orta'], ['1', 'Yavaş']].map(([v, l], i) => `<button class="chip ${i === 1 ? 'on' : ''}" data-v="${v}">${l} · ${v} sn</button>`).join('')}</div></div>
+    <button class="btn block" data-act="frameVideoGo">Videoyu oluştur</button>
+    <p class="muted tiny center" style="margin-top:10px">Video telefonunda oluşur; birkaç saniye sürer, ekranı açık tut.</p>`, chipGroup);
+};
+A.frameVideoGo = async (_, btn) => {
+  const series = chipVal('tvS'), per = +chipVal('tvP');
+  const items = series === 'm' ? monthlySeries().map(m => ({ e: m.e, label: `${m.month}. ay` })) : frames().map(e => ({ e, label: `${e.data.week || frameWeek(e.ts)}. hafta` }));
+  btn.disabled = true;
+  try {
+    const blob = await makeTimelapse(items, per, (p, msg) => { btn.textContent = `${msg} %${Math.round(p * 100)}`; });
+    const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+    const file = new File([blob], `${TR.cap(babyName())}-buyuyor.${ext}`, { type: blob.type });
+    openSheet(`<video src="${URL.createObjectURL(blob)}" controls playsinline autoplay muted loop style="width:100%;border-radius:16px;background:#000"></video>
+      <div class="row" style="gap:8px;margin-top:14px"><button class="btn grow" id="tvShare">Paylaş ✨</button><button class="btn ghost grow" id="tvSave">Kaydet</button></div>
+      <p class="muted tiny center" style="margin-top:8px">Paylaş menüsünde "Videoyu Kaydet" ile galeriye, Instagram'a da story/reels olarak.</p>`, root => {
+      $('#tvShare', root).onclick = () => shareFiles([file], 'Ninni');
+      $('#tvSave', root).onclick = () => { if (isIOS) shareFiles([file], 'Ninni'); else { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click(); } };
+    });
+  } catch (e) { console.warn(e); btn.disabled = false; btn.textContent = 'Videoyu oluştur'; toast(e.message === 'en az 2 kare' ? 'Video için en az 2 kare gerekiyor' : 'Video oluşturulamadı: ' + e.message); }
+};
+function framesArchive() {
+  const b = baby(); if (b?.status !== 'born') return '';
+  const fr = frames(); const mode = S.frMode || 'w';
+  const list = mode === 'm' ? monthlySeries().map(m => ({ e: m.e, label: `${m.month}. ay` })) : fr.map(e => ({ e, label: `${e.data.week || frameWeek(e.ts)}. hf` }));
+  return `<div class="card"><div class="row between"><h3>📸 Büyüme kareleri</h3>${isParent() ? `<button class="btn sm ghost" data-act="frameShoot">Çek</button>` : ''}</div>
+    ${fr.length ? `<div class="chips" style="margin:10px 0">${[['w', 'Haftalık'], ['m', 'Aylık']].map(([k, l]) => `<button class="chip ${mode === k ? 'on' : ''}" data-act="frMode" data-m="${k}">${l}</button>`).join('')}</div>
+      <div class="grid3" style="grid-template-columns:repeat(4,1fr)">${list.map(it => `<div><div class="ph" style="aspect-ratio:9/16" data-photo="${it.e.photo_path}" data-act="openMem" data-id="${it.e.id}"></div><div class="tiny muted center">${it.label}</div></div>`).join('')}</div>
+      <div class="row" style="gap:8px;margin-top:12px">${fr.length > 1 ? `<button class="btn sm grow" data-act="frameVideo">🎬 Değişim videosu</button>` : ''}${monthlySeries().length > 1 ? `<button class="btn sm ghost grow" data-act="collage">Aylık kolaj</button>` : ''}</div>`
+      : `<p class="muted small">Haftada bir, aynı köşede, aynı açıyla bir kare. Biriktikçe buradan değişim videosu oluşur.</p>`}</div>`;
+}
+A.frMode = d => { S.frMode = d.m; refresh(); };
 
 /* ══════════════════════════ BEBEK SEKMESİ ══════════════════════════ */
 VIEWS.child = () => {
@@ -2567,6 +2720,7 @@ function entryCardSpec(e) {
   const sub = `${fmtDateY(e.ts)} · ${age}`;
   if (e.kind === 'first') return { title: e.data.title, text: e.data.text, sub };
   if (e.kind === 'mphoto') return { title: `${name} · ${e.data.month}. ay`, sub: fmtDateY(e.ts) };
+  if (e.kind === 'frame') return { title: `${name} · ${e.data.week || frameWeek(e.ts)}. hafta`, sub: fmtDateY(e.ts) };
   if (e.kind === 'note') return { title: `${whoLabel(e.owner_id)} yazdı`, text: e.data.text, sub };
   if (e.kind === 'ultra') return { title: e.data.week ? `${e.data.week}. hafta` : 'Seni ilk gördüğümüz an', text: e.data.text, sub: fmtDateY(e.ts) };
   if (e.kind === 'heart') return { title: 'Kalbinin sesi 💓', text: [e.data.bpm ? e.data.bpm + ' atım' : '', e.data.text].filter(Boolean).join('\n'), sub: fmtDateY(e.ts) };
@@ -2652,9 +2806,10 @@ A.letterPDF = async (d, btn) => {
 /* ── 12 aylık kolaj */
 A.collage = async (d, btn) => {
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
-  const mph = E('mphoto').sort((a, b) => a.data.month - b.data.month).slice(0, 12);
-  const blobs = (await Promise.all(mph.map(e => photoBlob(e.photo_path)))); const ok = mph.map((e, i) => [e, blobs[i]]).filter(x => x[1]);
-  const pages = await renderPages([{ type: 'title', text: `${TR.cap(babyName())} · ${ok.length === 12 ? 'ilk yılı' : 'ilk ' + ok[ok.length - 1][0].data.month + ' ay'}` }, { type: 'grid', blobs: ok.map(x => x[1]), labels: ok.map(x => x[0].data.month + '. ay') }], { W: 1080, H: 1920, pad: 90, seed: 'col' });
+  const mph = monthlySeries().slice(0, 12);
+  const blobs = (await Promise.all(mph.map(m => photoBlob(m.e.photo_path)))); const ok = mph.map((m, i) => [m, blobs[i]]).filter(x => x[1]);
+  if (ok.length < 2) { if (btn) { btn.disabled = false; btn.textContent = 'Aylık kolaj'; } return toast('Kolaj için en az 2 aylık kare gerekiyor'); }
+  const pages = await renderPages([{ type: 'title', text: `${TR.cap(babyName())} · ${ok.length === 12 ? 'ilk yılı' : 'ilk ' + ok[ok.length - 1][0].month + ' ay'}` }, { type: 'grid', blobs: ok.map(x => x[1]), labels: ok.map(x => x[0].month + '. ay') }], { W: 1080, H: 1920, pad: 90, seed: 'col' });
   const blob = await canvasBlob(pages[0]); const file = new File([blob], 'ninni-kolaj.jpg', { type: 'image/jpeg' });
   if (btn) { btn.disabled = false; btn.textContent = 'Kolaj'; }
   openSheet(`<img class="preview-img" src="${URL.createObjectURL(blob)}"><button class="btn block" style="margin-top:14px" id="shC">Paylaş ✨</button>`, r => $('#shC', r).onclick = () => shareFiles([file], 'Ninni'));
@@ -2684,7 +2839,7 @@ async function makeBook(months) {
     if (['moment', 'ultra', 'heart'].flatMap(k => E(k)).some(e => new Date(e.ts) < birth)) { const { blocks } = await letterBlocks('preg'); await add(blocks, 'preg'); }
     for (let n = 1; n <= months; n++) {
       st.textContent = `${n}. ay…`;
-      const mp = E('mphoto').find(e => e.data.month === n); const blocks = [];
+      const mp = monthlySeries().find(m => m.month === n)?.e; const blocks = [];
       if (mp) { const pb = await photoBlob(mp.photo_path); if (pb) blocks.push({ type: 'title', text: `${n}. ay` }, { type: 'bigphoto', blob: pb }, { type: 'break' }); }
       const lb = await letterBlocks(n); await add([...blocks, ...lb.blocks], 'm' + n);
     }
@@ -2694,8 +2849,8 @@ async function makeBook(months) {
       for (const f of firsts) { fb.push({ type: 'p', text: `${f.data.title} — ${fmtDateY(f.ts)}${f.data.text ? '\n' + f.data.text : ''}` }); if (f.photo_path) { const pb = await photoBlob(f.photo_path); if (pb) fb.push({ type: 'photo', blob: pb }); } }
       await add(fb, 'firsts');
     }
-    const mph = E('mphoto').sort((a, b) => a.data.month - b.data.month).slice(0, 12);
-    if (mph.length > 1) { const bl = (await Promise.all(mph.map(e => photoBlob(e.photo_path)))); const ok = mph.map((e, i) => [e, bl[i]]).filter(x => x[1]); await add([{ type: 'title', text: 'Ay ay büyüdün' }, { type: 'grid', blobs: ok.map(x => x[1]), labels: ok.map(x => x[0].data.month + '. ay') }], 'grid'); }
+    const mph = monthlySeries().slice(0, 12);
+    if (mph.length > 1) { const bl = (await Promise.all(mph.map(m => photoBlob(m.e.photo_path)))); const ok = mph.map((m, i) => [m, bl[i]]).filter(x => x[1]); await add([{ type: 'title', text: 'Ay ay büyüdün' }, { type: 'grid', blobs: ok.map(x => x[1]), labels: ok.map(x => x[0].month + '. ay') }], 'grid'); }
     while (all.length % 4) await add([{ type: 'p', text: '' }], 'blank' + all.length);
     st.textContent = `${all.length} sayfa · PDF oluşturuluyor…`;
     const mmW = 148 + 6, mmH = 210 + 6;
