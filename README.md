@@ -29,6 +29,15 @@ Dosyalar: `index.html` (tüm uygulama), `sw.js`, `manifest.json`, ikonlar, `supa
 5. Uygulamada: Bebek sekmesi → 💊 Hatırlatıcılar → ekle. **Her ebeveyn** kendi telefonunda "Bildirimleri aç"a dokunur.
    iPhone'da bildirim yalnızca ana ekrana eklenmiş Ninni'de çalışır (iOS 16.4+).
 
+## 1c · Cihaz ekle (aynı hesap telefonda + bilgisayarda)
+
+1. SQL Editor → `supabase/05-cihaz-ekle.sql` → Run.
+2. Edge Functions → yeni fonksiyon `ninni-device` → `supabase/functions/ninni-device/index.ts` → Deploy → **Verify JWT kapalı**.
+3. Uygulamada: Ben → **Cihaz ekle** → 8 haneli kod (10 dk, tek kullanımlık).
+   Yeni cihazda "Bu hesap başka cihazımda açık" → kod. İki cihaz da açık kalır.
+
+Aile silme için: `supabase/04-aile-silme.sql`.
+
 ## 2 · GitHub Pages
 
 Repo (ör. `ceude/ninni`) → bu dosyaları köke koy → Settings → Pages → Branch: `main` / root.

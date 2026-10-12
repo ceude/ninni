@@ -355,6 +355,20 @@ drop policy if exists push_del on ninni.push_subs;
 create policy push_del on ninni.push_subs for delete to authenticated using (user_id = auth.uid());
 grant select, insert, update, delete on ninni.push_subs to authenticated;
 
+-- ───────────────────────── Aile silme (04-aile-silme.sql ile aynı)
+drop policy if exists ninni_delete on storage.objects;
+create policy ninni_delete on storage.objects for delete to authenticated
+  using (bucket_id = 'ninni' and exists (
+    select 1 from ninni.members m
+    where m.family_id::text = (storage.foldername(name))[1] and m.user_id = auth.uid() and m.role = 'parent'));
+create or replace function ninni.delete_family(p_family uuid)
+returns void language plpgsql security definer set search_path = ninni, public as $$
+begin
+  if not ninni.is_parent(p_family) then raise exception 'not parent'; end if;
+  delete from ninni.families where id = p_family;
+end $$;
+grant execute on function ninni.delete_family(uuid) to authenticated;
+
 -- ───────────────────────── Realtime (market listesi, gece nöbeti anlık)
 do $$ begin
   begin alter publication supabase_realtime add table ninni.entries; exception when others then null; end;
