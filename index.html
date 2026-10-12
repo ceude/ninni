@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Ninni">
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon.svg?v=2" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png?v=2">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -230,7 +230,7 @@ const CONFIG = {
   VAPID_PUBLIC: 'BGf6f0QkJEnf1MhJ-mp8N5rosyh45ZPmUiHFYPTMGklqzU1PNe9f5f_LBZJpNXhP9wAoNF111jF0NeBE8sA-bRc', // push bildirim açık anahtarı
   COUNTRY: 'DE'          // U-muayeneleri & destek kaynakları için varsayılan
 };
-const APP_VERSION = '1.2.2';
+const APP_VERSION = '1.3.0';
 
 /* ══════════════════════════ METİNLER (TR) ══════════════════════════
    Tüm görünür metinler burada; İngilizce sonradan aynı anahtarlarla eklenecek. */
@@ -2404,8 +2404,10 @@ VIEWS.list = () => {
   const bez = baby()?.data?.diaper;
   return `<div class="top"><h1 class="grow">🛒 Market</h1></div>
   <div class="card"><div class="row"><input class="in grow" id="shopIn" placeholder="Ne lazım?" enterkeyhint="done"><button class="btn" data-act="shopAdd" aria-label="Ekle">+</button></div>
+    <p class="muted tiny" style="margin:6px 4px 0;opacity:.75">Arasına virgül koyarak tek seferde de yazabilirsiniz: süt, ekmek, 1,5 kg elma</p>
     <div class="chips" style="margin-top:12px">${SHOP_QUICK.map(q => `<button class="chip" data-act="shopQuick" data-v="${q}">${q === 'Bez' && bez ? `Bez · ${bez === 'YD' ? 'yenidoğan' : bez + ' numara'}` : q}</button>`).join('')}</div></div>
   <div class="card">${open.length ? open.map(shopRow).join('') : `<p class="muted center">Liste boş 🤍</p>`}</div>
+  ${open.length && S.sb && !S.local && S.members.some(m => m.role === 'parent' && m.user_id !== meId()) ? `<button class="btn ghost block" style="margin-bottom:var(--gap)" data-act="shopNotify">📣 Listeyi ${esc(TR.dat(S.members.filter(m => m.role === 'parent' && m.user_id !== meId()).map(m => m.display_name).join(' ve ')))} bildir</button>` : ''}
   ${done.length ? `<div class="card soft"><div class="row between"><span class="muted small">Sepette (${done.length})</span><button class="link small" data-act="shopClear">Temizle</button></div>${done.map(shopRow).join('')}</div>` : ''}
   <p class="muted tiny center">Markette sepete attığında üstüne bir kez dokun; ikinizin telefonunda da çizilir.</p>`;
 };
@@ -2417,7 +2419,32 @@ async function addShop(title) {
   if (dup) return toast('Zaten listede 🤍');
   await saveEntry({ kind: 'shop', baby_id: null, ts: nowISO(), data: { title, checked: false } });
 }
-A.shopAdd = async () => { const i = $('#shopIn'); await addShop(i.value); i.value = ''; render(); setTimeout(() => $('#shopIn')?.focus(), 50); };
+// "süt, ekmek, bez" → 3 ürün; "1,5 kg elma" bölünmez (virgülün iki yanında da rakam varsa ondalıktır)
+const splitShop = s => String(s).split(/(?<!\d),|,(?!\d)/).map(x => x.trim()).filter(Boolean);
+A.shopAdd = async () => {
+  const i = $('#shopIn'); const parts = splitShop(i.value);
+  for (const p of parts) await addShop(p);
+  i.value = ''; render(); if (parts.length > 1) toast(`${parts.length} ürün eklendi`);
+  setTimeout(() => $('#shopIn')?.focus(), 50);
+};
+A.shopNotify = async (_, btn) => {
+  const wait = 60000 - (Date.now() - (S.shopNotifiedAt || 0));
+  if (wait > 0) return toast(`Az önce gönderildi; ${Math.ceil(wait / 1000)} sn sonra tekrar gönderebilirsin`);
+  btn.disabled = true;
+  try {
+    await push(); // son eklenenler sunucuya ulaşsın
+    const { data: { session } } = await S.sb.auth.getSession();
+    const r = await fetch(`${CONFIG.SB_URL}/functions/v1/ninni-notify`, {
+      method: 'POST', body: JSON.stringify({ family_id: S.family, kind: 'shop' }),
+      headers: { 'Content-Type': 'application/json', apikey: CONFIG.SB_KEY, Authorization: 'Bearer ' + session?.access_token },
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || r.status);
+    S.shopNotifiedAt = Date.now();
+    toast(j.sent ? `Gönderildi 📣 ${(j.to || []).join(', ')}` : j.reason === 'no subscription' ? `${(j.to || []).join(', ')} bildirimleri henüz açmamış (Ekin sekmesi → Hatırlatıcılar)` : 'Gönderilecek ürün yok');
+  } catch (e) { console.warn(e); toast(String(e.message) === 'auth' ? 'Oturum yenilenmeli; uygulamayı kapatıp aç' : 'Şu an gönderilemedi'); }
+  btn.disabled = false;
+};
 A.shopQuick = async d => { const bez = baby()?.data?.diaper; await addShop(d.v === 'Bez' && bez ? `Bez · ${bez === 'YD' ? 'yenidoğan' : bez + ' numara'}` : d.v); render(); };
 A.shopToggle = async d => { haptic(); const i = S.entries.get(d.id); await saveEntry({ id: i.id, data: { ...i.data, checked: !i.data.checked, checked_at: nowISO() } }); render(); };
 A.shopClear = async () => { for (const i of E('shop', { babyId: null }).filter(i => i.data.checked)) await saveEntry({ id: i.id, deleted: true }); render(); };
@@ -2931,6 +2958,9 @@ addEventListener('online', () => { S.online = true; afterLogin(); refresh(); });
 addEventListener('offline', () => { S.online = false; refresh(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && S.me) { sync(); touchPresence(); updateNight(); refresh(); } });
 
+navigator.serviceWorker?.addEventListener('message', e => { // açık uygulamada bildirime dokunuldu
+  if (e.data?.tab && S.screen === 'main') { S.tab = e.data.tab; closeSheet(); render(); sync(); }
+});
 async function boot() {
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => { });
   try { navigator.storage?.persist?.(); } catch (e) { }
@@ -2946,7 +2976,9 @@ async function boot() {
     if (S.sb && S.session && S.session.user.id !== S.me.user_id && !S.me.localOnly) { // başka hesapla döndü (Google)
       const mem = await findMembership(); if (mem) { S.me = { user_id: mem.user_id, family_id: mem.family_id, display_name: mem.display_name, role: mem.role, parent_kind: mem.parent_kind, relation: mem.relation, show_awake: mem.show_awake }; S.family = mem.family_id; await kv.set('me', S.me); }
     }
-    if (jm) history.replaceState(null, '', location.pathname);
+    const qtab = new URLSearchParams(location.search).get('tab'); // bildirimden açıldıysa ilgili sekme
+    if (qtab && ['today', 'mem', 'child', 'list', 'me'].includes(qtab)) S.tab = qtab;
+    if (jm || qtab) history.replaceState(null, '', location.pathname);
     S.screen = 'main'; render(); afterLogin(); return;
   }
   if (jm) S.pendingJoin = { code: jm[1].toUpperCase().replace(/[^A-Z0-9]/g, '') };

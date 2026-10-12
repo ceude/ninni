@@ -1,5 +1,5 @@
 // Ninni service worker — uygulama kabuğu offline çalışır; Supabase istekleri hiç önbelleğe alınmaz.
-const VERSION = 'ninni-v1.2.2';
+const VERSION = 'ninni-v1.3.1';
 const SHELL = ['./', 'index.html', 'manifest.json', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 const CDN = /^https:\/\/(cdn\.jsdelivr\.net|fonts\.googleapis\.com|fonts\.gstatic\.com)\//;
 
@@ -20,9 +20,11 @@ self.addEventListener('push', e => {
 });
 self.addEventListener('notificationclick', e => {
   e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || './';
+  const tab = new URL(url, self.location.href).searchParams.get('tab');
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-    for (const c of list) if ('focus' in c) return c.focus();
-    return self.clients.openWindow((e.notification.data && e.notification.data.url) || './');
+    for (const c of list) if ('focus' in c) { if (tab) c.postMessage({ tab }); return c.focus(); }
+    return self.clients.openWindow(url);
   }));
 });
 
