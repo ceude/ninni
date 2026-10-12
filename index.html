@@ -202,6 +202,12 @@ nav.tabs button.on{color:var(--deep);background:var(--soft)}
 .done .check{background:var(--deep);border-color:var(--deep);color:#fff}
 svg.chart{width:100%;height:auto;display:block}
 .fade-in{animation:fade .5s}
+/* iOS Safari: sağ alttaki ••• düğmesini gösteren ok */
+.dots-hint{position:fixed;right:14px;bottom:calc(var(--safe-b) + 8px);z-index:30;display:flex;flex-direction:column;align-items:flex-end;gap:2px;color:var(--deep);font-weight:800;pointer-events:none;animation:nudge 1.4s ease-in-out infinite}
+.dots-hint span{font-size:.8rem;background:var(--card);padding:4px 10px;border-radius:999px;box-shadow:0 4px 14px var(--glow)}
+.dots-hint b{font-size:1.4rem;letter-spacing:2px;line-height:1;margin-right:6px}
+.dots-hint i{font-style:normal;font-size:2.6rem;line-height:1;margin-right:2px}
+@keyframes nudge{0%,100%{transform:translate(0,0)}50%{transform:translate(4px,8px)}}
 .hidden{display:none!important}
 </style>
 </head>
@@ -248,11 +254,12 @@ const STR = {
     next_side: 'Sıradaki taraf', running: 'sürüyor',
     moment_q: 'Bugünün küçük anı?', moment_ph: 'Bir cümle yeter…', moment_today: 'Bugünün anı',
     photo_note: 'Fotoğraflarını burada biraz küçülterek saklıyoruz, hepsi rahatça sığsın ve uygulama hafif kalsın diye. {name} en net, en güzel hâlleri galerinde dursun; asıllarını orada saklamayı unutma, olur mu? 🤍',
-    install_t: 'Anılar kaybolmasın 🤍', install_ios: 'Paylaş düğmesine dokun, sonra "Ana Ekrana Ekle". Böylece telefonun bu anıları kendi uygulaması gibi korur.',
+    install_t: 'Anılar kaybolmasın 🤍', install_ios: 'Sağ alttaki ••• → Paylaş → listeyi aşağı kaydır → "Ana Ekrana Ekle". Böylece telefonun bu anıları kendi uygulaması gibi korur.',
     install_and: 'Ninni\'yi ana ekrana ekle; anılar telefonunda güvende dursun.', install_btn: 'Ana ekrana ekle',
-    ios_gate_t: 'Ninni\'yi ana ekrana ekleyerek başla', ios_gate_p: 'iPhone, ana ekrana eklenen uygulamaların anılarını daha iyi korur. İki küçük adım:',
-    ios_gate_1: 'Alttaki Paylaş düğmesine dokun', ios_gate_2: '"Ana Ekrana Ekle"yi seç', ios_gate_3: 'Ana ekrandaki Ninni\'yi aç',
-    ios_gate_skip: 'Şimdilik tarayıcıda devam et',
+    ios_gate_t: 'Ninni\'yi ana ekrana ekleyerek başla', ios_gate_p: 'iPhone, ana ekrana eklenen uygulamaların anılarını daha iyi korur; bildirimler de sadece orada çalışır. Birkaç küçük adım:',
+    ios_gate_1: 'Sağ alttaki <b>•••</b> (üç nokta) düğmesine dokun', ios_gate_2: '<b>Paylaş</b>\'a dokun',
+    ios_gate_2b: 'Açılan listeyi aşağı kaydır, <b>Ana Ekrana Ekle</b>\'ye dokun, sonra <b>Ekle</b>', ios_gate_3: 'Ana ekranda beliren <b>Ninni</b>\'yi aç ve oradan başla',
+    ios_gate_skip: 'Şimdilik tarayıcıda devam et (sonra taşıman gerekir)',
     kirk_t: 'Kırk gün', kirk_done: 'Kırkı çıktı 🤍', kirk_p: 'Kırk günün {n}. günü. Acele yok; her gün biraz daha alışıyorsunuz.',
     checkin_q: 'Sen nasılsın, {name}?', checkin_sub: 'Bu hafta senin için nasıldı? Sadece sen göreceksin.',
     later: 'Şimdi değil',
@@ -874,10 +881,12 @@ VIEWS.gate = () => `
   <p class="q center">${t('ios_gate_t')}</p>
   <p class="center muted">${t('ios_gate_p')}</p>
   <div class="card stack">
-    <div class="row"><span class="pill">1</span><span>${t('ios_gate_1')} <b style="font-size:1.2rem">⎋</b></span></div>
+    <div class="row"><span class="pill">1</span><span>${t('ios_gate_1')}</span></div>
     <div class="row"><span class="pill">2</span><span>${t('ios_gate_2')}</span></div>
-    <div class="row"><span class="pill">3</span><span>${t('ios_gate_3')}</span></div>
+    <div class="row"><span class="pill">3</span><span>${t('ios_gate_2b')}</span></div>
+    <div class="row"><span class="pill">4</span><span>${t('ios_gate_3')}</span></div>
   </div>
+  <div class="dots-hint" aria-hidden="true"><span>buraya dokun</span><b>•••</b><i>➘</i></div>
   ${S.pendingJoin?.code ? `<div class="card soft center"><p class="small">Ana ekrandaki Ninni'de <b>"Davet kodum var"</b>a dokunup bu kodu yaz:</p><div style="font-size:1.6rem;font-weight:800;letter-spacing:.15em">${esc(S.pendingJoin.code.slice(0, 4) + '-' + S.pendingJoin.code.slice(4))}</div></div>` : ''}
   <button class="link center" data-act="gateSkip">${t('ios_gate_skip')}</button>
 </div>`;
@@ -1374,7 +1383,7 @@ function agoCard() {
 function installCard() {
   if (isStandalone()) return '';
   if (isIOS && S.sb && !S.local) return `<div class="card" style="border:2px solid var(--accent)"><h3>📲 Ninni'yi ana ekrana taşı</h3>
-    <p class="small">Bildirimler ve anıların güvenliği için Ninni ana ekrandan açılmalı. Önce Paylaş → "Ana Ekrana Ekle", sonra buradaki her şeyi tek kodla oraya taşı.</p>
+    <p class="small">Bildirimler ve anıların güvenliği için Ninni ana ekrandan açılmalı. Önce sağ alttaki ••• → Paylaş → listeyi aşağı kaydır → "Ana Ekrana Ekle". Sonra buradaki her şeyi tek kodla oraya taşı.</p>
     <button class="btn sm" style="margin-top:10px" data-act="transfer">Taşıma kodunu al</button></div>`;
   if (S.prefs.installHide || !S.entries.size) return '';
   return `<div class="card soft"><h3>${t('install_t')}</h3><p class="small">${isIOS ? t('install_ios') : t('install_and')}</p>
