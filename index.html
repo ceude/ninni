@@ -492,7 +492,7 @@ async function push() {
         const b = S.babies.find(x => x.id === it.id) || await IDB.get('babies', it.id);
         if (b) { ({ error } = await S.sb.from('babies').upsert(only(b, BABY_COLS))); if (!error) { b._dirty = false; await IDB.put('babies', b); } }
       } else if (it.t === 'upload') {
-        const blob = await IDB.get('blobs', it.path);
+        const blob = await localBlob(it.path);
         if (blob) { ({ error } = await S.sb.storage.from('ninni').upload(it.path, blob, { contentType: blob.type || 'image/jpeg', upsert: false })); if (error && /exists|Duplicate/i.test(error.message)) error = null; }
       } else if (it.t === 'member') {
         if (Object.keys(it.patch).length) ({ error } = await S.sb.from('members').update(it.patch).eq('family_id', S.family).eq('user_id', meId()));
@@ -605,33 +605,48 @@ async function compressImage(fileOrBlob, max = 1600, q = .82) {
     return await new Promise(r => c.toBlob(r, 'image/jpeg', q));
   } finally { URL.revokeObjectURL(url); }
 }
+/* Fotoğraflar IndexedDB'de Blob olarak DEĞİL ham veri (ArrayBuffer) olarak saklanır: iOS'ta ana ekran
+   uygulaması yeniden açılınca saklı Blob'lar okunamaz hale gelebiliyor ("WebKitBlobResource error"). */
+async function putBlob(path, blob) { await IDB.put('blobs', { type: blob.type || 'image/jpeg', buf: await blob.arrayBuffer() }, path); }
+async function localBlob(path) {
+  const v = await IDB.get('blobs', path); if (!v) return null;
+  if (v.buf) return new Blob([v.buf], { type: v.type || 'image/jpeg' });
+  try { const buf = await v.arrayBuffer(); if (!buf.byteLength) throw 0; await IDB.put('blobs', { type: v.type || 'image/jpeg', buf }, path); return new Blob([buf], { type: v.type || 'image/jpeg' }); }
+  catch (e) { await IDB.del('blobs', path); return null; } // eski biçimde ve bozulmuş: sil, sunucudan yeniden gelsin
+}
 async function storePhoto(blob) {
   const path = `${S.family}/${uuid()}.jpg`;
-  await IDB.put('blobs', blob, path);
+  await putBlob(path, blob);
   photoCache.set(path, URL.createObjectURL(blob));
   await queue({ t: 'upload', path });
   return path;
 }
-async function photoBlob(path) {
-  if (!path) return null;
-  let b = await IDB.get('blobs', path);
-  if (!b && S.sb && S.online) {
-    const { data } = await S.sb.storage.from('ninni').download(path);
-    if (data) { b = data; await IDB.put('blobs', b, path); }
-  }
-  return b;
+async function remoteBlob(path) {
+  if (!S.sb || !S.online) return null;
+  const { data } = await S.sb.storage.from('ninni').download(path);
+  if (data?.size) { await putBlob(path, data); return data; }
+  return null;
 }
+async function photoBlob(path) { if (!path) return null; return (await localBlob(path)) || remoteBlob(path); }
 async function photoURL(path) {
   if (!path) return null;
   if (photoCache.has(path)) return photoCache.get(path);
   const b = await photoBlob(path); if (!b) return null;
   const u = URL.createObjectURL(b); photoCache.set(path, u); return u;
 }
+async function photoRepair(path) { // görüntü açılamadı: yerel kopyayı at, sunucudan yeniden indir
+  photoCache.delete(path); await IDB.del('blobs', path);
+  const b = await remoteBlob(path); if (!b) return null;
+  const u = URL.createObjectURL(b); photoCache.set(path, u); return u;
+}
 function hydrate(root = document) {
   $$('[data-photo]', root).forEach(async el => {
     const p = el.dataset.photo; if (!p || el.dataset.done === p) return;
     const u = await photoURL(p); if (!u) return;
-    el.dataset.done = p; el.innerHTML = `<img src="${u}" alt="" loading="lazy">`;
+    el.dataset.done = p;
+    const img = new Image(); img.alt = ''; img.decoding = 'async';
+    img.onerror = async () => { if (img.dataset.retried) return; img.dataset.retried = '1'; const nu = await photoRepair(p); if (nu) img.src = nu; };
+    img.src = u; el.replaceChildren(img);
   });
 }
 
@@ -2633,7 +2648,7 @@ A.importAll = async () => {
     const pathMap = {};
     for (const [p, durl] of Object.entries(data.photos || {})) {
       const np = `${S.family}/${p.split('/').pop()}`; pathMap[p] = np;
-      if (!(await IDB.get('blobs', np))) { const blob = await (await fetch(durl)).blob(); await IDB.put('blobs', blob, np); await queue({ t: 'upload', path: np }); }
+      if (!(await localBlob(np))) { const blob = await (await fetch(durl)).blob(); await putBlob(np, blob); await queue({ t: 'upload', path: np }); }
     }
     for (const b of data.babies || []) if (!S.babies.find(x => x.id === b.id)) await saveBaby({ ...b, family_id: S.family, photo_path: pathMap[b.photo_path] || b.photo_path });
     let n = 0;
