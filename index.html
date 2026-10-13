@@ -202,6 +202,9 @@ nav.tabs button.on{color:var(--deep);background:var(--soft)}
 .done .check{background:var(--deep);border-color:var(--deep);color:#fff}
 svg.chart{width:100%;height:auto;display:block}
 .fade-in{animation:fade .5s}
+.thumb{position:relative}
+.heart{position:absolute;top:4px;right:4px;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.82);color:#c4708c;font-size:1rem;line-height:30px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.15);z-index:2}
+.heart.on{background:#e2758f;color:#fff}
 /* iOS Safari: sağ alttaki ••• düğmesini gösteren ok */
 .dots-hint{position:fixed;right:14px;bottom:calc(var(--safe-b) + 8px);z-index:30;display:flex;flex-direction:column;align-items:flex-end;gap:2px;color:var(--deep);font-weight:800;pointer-events:none;animation:nudge 1.4s ease-in-out infinite}
 .dots-hint span{font-size:.8rem;background:var(--card);padding:4px 10px;border-radius:999px;box-shadow:0 4px 14px var(--glow)}
@@ -230,7 +233,7 @@ const CONFIG = {
   VAPID_PUBLIC: 'BGf6f0QkJEnf1MhJ-mp8N5rosyh45ZPmUiHFYPTMGklqzU1PNe9f5f_LBZJpNXhP9wAoNF111jF0NeBE8sA-bRc', // push bildirim açık anahtarı
   COUNTRY: 'DE'          // U-muayeneleri & destek kaynakları için varsayılan
 };
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.5.0';
 
 /* ══════════════════════════ METİNLER (TR) ══════════════════════════
    Tüm görünür metinler burada; İngilizce sonradan aynı anahtarlarla eklenecek. */
@@ -1675,9 +1678,10 @@ function memItem(e) {
 VIEWS.mem = () => {
   const b = baby(); const birth = birthOf(b);
   const filter = S.memFilter || 'all';
-  const kinds = { all: MEM_KINDS, moment: ['moment', 'note'], first: ['first'], photo: MEM_KINDS }[filter];
+  const kinds = { all: MEM_KINDS, moment: ['moment', 'note'], first: ['first'], photo: MEM_KINDS, fav: PHOTO_KINDS }[filter];
   let items = kinds.flatMap(k => E(k));
   if (filter === 'photo') items = items.filter(e => e.photo_path);
+  if (filter === 'fav') items = items.filter(e => e.photo_path && e.data?.fav);
   items.sort((a, b) => new Date(b.ts) - new Date(a.ts));
   const groups = []; for (const e of items) { const k = ymd(e.ts); const g = groups[groups.length - 1]; if (g?.k === k) g.items.push(e); else groups.push({ k, items: [e] }); }
   const months = birth && b.status === 'born' ? monthsOld(birth) : 0;
@@ -1693,8 +1697,10 @@ VIEWS.mem = () => {
     ${Array.from({ length: months }, (_, i) => `<button class="chip" data-act="openLetter" data-n="${i + 1}">${i + 1}. ay</button>`).join('')}</div>
     ${months ? `<button class="btn line block sm" style="margin-top:12px" data-act="book">📚 Yıl kitabı (baskıya hazır PDF)</button>` : ''}</div>` : ''}
   ${framesArchive()}
-  <div class="chips">${[['all', 'Hepsi'], ['moment', 'Anlar'], ['first', 'İlkler'], ['photo', 'Fotoğraflar']].map(([k, l]) => `<button class="chip ${filter === k ? 'on' : ''}" data-act="memFilter" data-f="${k}">${l}</button>`).join('')}</div>
-  ${filter === 'photo' ? `<div class="grid3" style="margin-top:14px">${items.map(e => `<div class="ph" data-photo="${e.photo_path}" data-act="openMem" data-id="${e.id}"></div>`).join('')}</div>`
+  <div class="chips">${[['all', 'Hepsi'], ['moment', 'Anlar'], ['first', 'İlkler'], ['photo', 'Fotoğraflar'], ['fav', '♥ Favoriler']].map(([k, l]) => `<button class="chip ${filter === k ? 'on' : ''}" data-act="memFilter" data-f="${k}">${l}</button>`).join('')}</div>
+  ${filter === 'fav' && !items.length ? `<div class="card soft center" style="margin-top:14px"><p class="muted small">Henüz favori yok. Bir fotoğrafın köşesindeki ♡'ye dokunarak ekleyebilirsin.</p></div>` : ''}
+  ${filter === 'photo' || filter === 'fav' ? `<div class="grid3" style="margin-top:14px">${items.map(e => `<div class="thumb"><div class="ph" data-photo="${e.photo_path}" data-act="openMem" data-id="${e.id}"></div>${heartBtn(e)}</div>`).join('')}</div>
+    ${filter === 'fav' && items.length > 1 ? `<button class="btn block" style="margin-top:12px" data-act="frameVideo" data-fav="1">🎬 Favorilerden video</button>` : ''}`
     : groups.length ? groups.map(g => `<div class="day-h">${dayLabel(parseYmd(g.k))}</div><div class="card">${g.items.map(memItem).join('<div class="hr"></div>')}</div>`).join('')
     : `<div class="card soft center"><p class="hand" style="font-size:1.6rem">Buraya ilk anınızı yazabilirsiniz 🤍</p><p class="muted small">Bir cümle bile yeter.</p></div>`}`;
 };
@@ -1708,6 +1714,7 @@ A.openMem = d => {
   openSheet(`${big}${e.kind === 'story' ? content : `<div class="card soft">${content.replace(/<div class="ph"[^>]*><\/div>/, '')}</div>`}
     <div class="row wrap" style="gap:8px">
       <button class="btn grow" data-act="shareEntry" data-id="${e.id}">Paylaş ✨</button>
+      ${e.photo_path && isParent() ? `<button class="btn ghost" data-act="fav" data-id="${e.id}">${e.data?.fav ? '♥ Favori' : '♡ Favorilere ekle'}</button>` : ''}
       ${canEdit(e) && e.kind !== 'story' ? `<button class="btn ghost" data-act="editMem" data-id="${e.id}">${t('edit')}</button>` : ''}
       ${canEdit(e) && e.kind === 'story' && e.owner_id === meId() ? `<button class="btn ghost" data-act="story">${t('edit')}</button>` : ''}
     </div>`);
@@ -2143,21 +2150,35 @@ async function makeTimelapse(items, per, onProg) {
   return new Blob(chunks, { type: mime.split(';')[0] });
 }
 const SERIES_NAMES = { d: 'Günlük', w: 'Haftalık', m: 'Aylık' };
-A.frameVideo = () => {
+// Videoya girecek kareler: "sadece favoriler" açıksa kalpli tüm fotoğraflar (kareler, anlar, ilkler), tarih sırasıyla
+const videoItems = (series, favOnly) => favOnly
+  ? favPhotos().map(e => ({ e, label: frameDay(e.ts) < 0 ? fmtDate(e.ts) : dayLabel2(frameDay(e.ts)) })) // doğumdan önceki (ultrason) → tarih
+  : seriesOf(series);
+A.frameVideo = d => {
   const avail = ['d', 'w', 'm'].map(k => [k, seriesOf(k).length]).filter(([, n]) => n > 1);
-  const updateEta = root => { const n = seriesOf(chipVal('tvS') || 'd').length, p = +(chipVal('tvP') || .2); $('#tvEta', root).textContent = `${n} kare · yaklaşık ${Math.round(n * p + 4)} saniyelik video`; };
+  const nFav = favPhotos().length; const favStart = d?.fav === '1' || !avail.length;
+  const updateEta = root => {
+    const fav = $('#tvFav', root)?.checked; $('#tvSWrap', root).style.opacity = fav ? .4 : 1; $('#tvSWrap', root).style.pointerEvents = fav ? 'none' : '';
+    const n = videoItems(chipVal('tvS') || 'd', fav).length, p = +(chipVal('tvP') || .2);
+    $('#tvEta', root).textContent = n > 1 ? `${n} kare · yaklaşık ${Math.round(n * p + 4)} saniyelik video` : 'Video için en az 2 kare gerekiyor';
+  };
   openSheet(`<h2>🎬 Değişim videosu</h2>
-    <div class="f"><span style="font-weight:700;font-size:.92rem">Seri</span><div class="chips" id="tvS" style="margin-top:8px">
-      ${avail.map(([k, n], i) => `<button class="chip ${i === 0 ? 'on' : ''}" data-v="${k}">${SERIES_NAMES[k]} (${n})</button>`).join('')}</div></div>
+    ${isParent() || nFav ? `<div class="toggle"><span>♥ Sadece favoriler (${nFav})<div class="muted small">Kalp koyduğun tüm fotoğraflar, tarih sırasıyla</div></span><label class="sw"><input type="checkbox" id="tvFav" ${favStart && nFav > 1 ? 'checked' : ''} ${nFav > 1 ? '' : 'disabled'}><i></i></label></div>` : ''}
+    <div class="f" id="tvSWrap"><span style="font-weight:700;font-size:.92rem">Seri</span><div class="chips" id="tvS" style="margin-top:8px">
+      ${avail.map(([k, n], i) => `<button class="chip ${i === 0 ? 'on' : ''}" data-v="${k}">${SERIES_NAMES[k]} (${n})</button>`).join('') || '<span class="muted small">Henüz yeterli büyüme karesi yok</span>'}</div></div>
     <div class="f"><span style="font-weight:700;font-size:.92rem">Kare başına</span><div class="chips" id="tvP" style="margin-top:8px">
       ${[['0.1', 'Çok hızlı'], ['0.2', 'Hızlı'], ['0.4', 'Orta'], ['0.8', 'Yavaş']].map(([v, l], i) => `<button class="chip ${i === 1 ? 'on' : ''}" data-v="${v}">${l} · ${v.replace('.', ',')} sn</button>`).join('')}</div></div>
     <p class="muted small center" id="tvEta"></p>
     <button class="btn block" data-act="frameVideoGo">Videoyu oluştur</button>
-    <p class="muted tiny center" style="margin-top:10px">Video telefonunda oluşur; oluşurken ekranı açık tut.</p>`, root => { chipGroup(root); updateEta(root); root.addEventListener('click', () => setTimeout(() => updateEta(root), 0)); });
+    <p class="muted tiny center" style="margin-top:10px">Video telefonunda oluşur; oluşurken ekranı açık tut.</p>`, root => {
+      chipGroup(root); updateEta(root);
+      root.addEventListener('click', () => setTimeout(() => updateEta(root), 0));
+      $('#tvFav', root)?.addEventListener('change', () => updateEta(root));
+    });
 };
 A.frameVideoGo = async (_, btn) => {
   const series = chipVal('tvS') || 'd', per = +chipVal('tvP');
-  const items = seriesOf(series);
+  const items = videoItems(series, $('#tvFav')?.checked);
   btn.disabled = true;
   try {
     const blob = await makeTimelapse(items, per, (p, msg) => { btn.textContent = `${msg} %${Math.round(p * 100)}`; });
@@ -2178,13 +2199,24 @@ function framesArchive() {
   const list = S.frAll ? all : all.slice(0, 28);
   return `<div class="card"><div class="row between"><h3>📸 Büyüme kareleri</h3>${isParent() ? `<button class="btn sm ghost" data-act="frameShoot">Çek</button>` : ''}</div>
     ${fr.length ? `<div class="chips" style="margin:10px 0">${Object.entries(SERIES_NAMES).map(([k, l]) => `<button class="chip ${mode === k ? 'on' : ''}" data-act="frMode" data-m="${k}">${l}</button>`).join('')}</div>
-      <div class="grid3" style="grid-template-columns:repeat(4,1fr)">${list.map(it => `<div><div class="ph" style="aspect-ratio:9/16" data-photo="${it.e.photo_path}" data-act="openMem" data-id="${it.e.id}"></div><div class="tiny muted center">${it.label}</div></div>`).join('')}</div>
+      <div class="grid3" style="grid-template-columns:repeat(4,1fr)">${list.map(it => `<div class="thumb"><div class="ph" style="aspect-ratio:9/16" data-photo="${it.e.photo_path}" data-act="openMem" data-id="${it.e.id}"></div>${heartBtn(it.e)}<div class="tiny muted center">${it.label}</div></div>`).join('')}</div>
       ${all.length > 28 ? `<button class="link small" style="margin-top:8px" data-act="frAll">${S.frAll ? 'Son 28 kareyi göster' : `Tümünü göster (${all.length})`}</button>` : ''}
       <div class="row" style="gap:8px;margin-top:12px">${fr.length > 1 ? `<button class="btn sm grow" data-act="frameVideo">🎬 Değişim videosu</button>` : ''}${monthlySeries().length > 1 ? `<button class="btn sm ghost grow" data-act="collage">Aylık kolaj</button>` : ''}</div>`
       : `<p class="muted small">Her gün aynı köşede, aynı açıyla bir kare. Biriktikçe buradan değişim videosu oluşur.</p>`}
     ${isParent() ? `<div class="hr"></div><div class="row between small"><span class="muted">Hatırlatma ritmi</span><div class="chips">${[['daily', 'Günlük'], ['weekly', 'Haftalık']].map(([k, l]) => `<button class="chip ${frameRhythm() === k ? 'on' : ''}" data-act="frRhythm" data-v="${k}">${l}</button>`).join('')}</div></div>
       <p class="muted tiny">${frameRhythm() === 'daily' ? '3 gün' : '10 gün'} çekilmezse kart ana ekranda yukarı çıkar; başka hiçbir uyarı yok.</p>` : ''}</div>`;
 }
+/* ── favoriler: ailede ortak (data.fav). Ebeveynler kalp koyar, herkes görür. */
+const PHOTO_KINDS = ['frame', 'mphoto', 'moment', 'first', 'ultra', 'note'];
+const favPhotos = () => PHOTO_KINDS.flatMap(k => E(k)).filter(e => e.photo_path && e.data?.fav).sort((a, b) => new Date(a.ts) - new Date(b.ts));
+const heartBtn = e => !e.photo_path ? '' : isParent()
+  ? `<button class="heart ${e.data?.fav ? 'on' : ''}" data-act="fav" data-id="${e.id}" aria-label="${e.data?.fav ? 'Favorilerden çıkar' : 'Favorilere ekle'}">${e.data?.fav ? '♥' : '♡'}</button>`
+  : (e.data?.fav ? `<span class="heart on" aria-label="Favori">♥</span>` : '');
+A.fav = async d => {
+  haptic(); const e = S.entries.get(d.id); if (!e || !canEdit(e)) return;
+  await saveEntry({ id: e.id, data: { ...e.data, fav: !e.data?.fav } });
+  if (sheetOpen() && $('#sheetBody [data-act=fav]')) A.openMem({ id: e.id }); else refresh();
+};
 A.frMode = d => { S.frMode = d.m; S.frAll = false; refresh(); };
 A.frAll = () => { S.frAll = !S.frAll; refresh(); };
 A.frRhythm = async d => { S.prefs.frameRhythm = d.v; await savePrefs(); refresh(); };
