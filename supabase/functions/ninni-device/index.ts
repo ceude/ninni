@@ -1,7 +1,8 @@
 // Ninni · "Cihaz ekle" (Supabase Edge Function: "ninni-device")
 // create: oturum açık cihaz 10 dk geçerli, tek kullanımlık bir kod alır.
 // redeem: yeni cihaz kodu verir → AYNI hesap için AYRI bir oturum açılır. Hiçbir cihaz kapanmaz.
-// Hesap e-postasızsa, sadece sunucunun bildiği (hiç e-posta gönderilmeyen) bir giriş tanımlanır.
+// Şifre değiştirilmez (değişirse diğer cihazlar kapanırdı); her cihaz için tek kullanımlık giriş bağlantısı
+// sunucuda üretilip hemen kullanılır, hiçbir e-posta gönderilmez.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
@@ -45,12 +46,23 @@ Deno.serve(async (req) => {
 
     const { data: got, error: ge } = await admin.auth.admin.getUserById(row.user_id);
     if (ge || !got?.user) return json({ error: 'user' }, 400);
-    const email = got.user.email || `u-${row.user_id}@devices.ninni.invalid`; // e-posta gönderilmez, sadece giriş anahtarı
-    const password = rand(40, ALPHA + 'abcdefghijkmnpqrstuvwxyz');
-    const { error: ue } = await admin.auth.admin.updateUserById(row.user_id, { email, password, email_confirm: true });
-    if (ue) return json({ error: 'update: ' + ue.message }, 500);
-    const { data: s, error: se } = await pub().auth.signInWithPassword({ email, password });
-    if (se || !s?.session) return json({ error: 'signin: ' + (se?.message ?? '') }, 500);
+    // ŞİFREYE DOKUNMA: şifre değişince Supabase diğer tüm oturumları kapatır.
+    // Hesabın e-postası yoksa bir kez, hiç posta gönderilmeyen bir adres tanımlanır.
+    let email = got.user.email;
+    if (!email) {
+      email = `u-${row.user_id}@devices.ninni.invalid`;
+      const { error: ue } = await admin.auth.admin.updateUserById(row.user_id, { email, email_confirm: true });
+      if (ue) return json({ error: 'email: ' + ue.message }, 500);
+    }
+    // Tek kullanımlık giriş bağlantısı üret (e-posta GÖNDERİLMEZ) ve hemen burada kullanarak yeni, ayrı bir oturum aç
+    const { data: link, error: le } = await admin.auth.admin.generateLink({ type: 'magiclink', email });
+    if (le || !link?.properties?.hashed_token) return json({ error: 'link: ' + (le?.message ?? '') }, 500);
+    let { data: s, error: se } = await pub().auth.verifyOtp({ token_hash: link.properties.hashed_token, type: 'magiclink' });
+    if (se || !s?.session) {
+      const { data: link2 } = await admin.auth.admin.generateLink({ type: 'magiclink', email });
+      ({ data: s, error: se } = await pub().auth.verifyOtp({ token_hash: link2?.properties?.hashed_token ?? '', type: 'email' }));
+    }
+    if (se || !s?.session) return json({ error: 'verify: ' + (se?.message ?? '') }, 500);
     return json({ access_token: s.session.access_token, refresh_token: s.session.refresh_token });
   }
 

@@ -230,7 +230,7 @@ const CONFIG = {
   VAPID_PUBLIC: 'BGf6f0QkJEnf1MhJ-mp8N5rosyh45ZPmUiHFYPTMGklqzU1PNe9f5f_LBZJpNXhP9wAoNF111jF0NeBE8sA-bRc', // push bildirim açık anahtarı
   COUNTRY: 'DE'          // U-muayeneleri & destek kaynakları için varsayılan
 };
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 
 /* ══════════════════════════ METİNLER (TR) ══════════════════════════
    Tüm görünür metinler burada; İngilizce sonradan aynı anahtarlarla eklenecek. */
@@ -734,6 +734,8 @@ async function findMembership() { // Google ile geri dönen kullanıcı için
   const { data } = await S.sb.from('members').select('*').eq('user_id', uid).order('created_at').limit(1);
   return data?.[0] || null;
 }
+// Gerçekten Google bağlı mı? ("anonim değil" yetmez: Cihaz ekle de hesaba e-postasız bir giriş tanımlar)
+const hasGoogle = () => { const u = S.session?.user; return !!(u?.identities?.some(i => i.provider === 'google') || u?.app_metadata?.providers?.includes('google')); };
 async function linkGoogle() {
   const { error } = await S.sb.auth.linkIdentity({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
   if (error) toast('Şu an bağlanamadı, biraz sonra tekrar deneyelim');
@@ -1268,7 +1270,7 @@ function doseCards() {
     if (d) return `<div class="card soft row"><span style="font-size:1.5rem">✅</span><div class="grow"><b>${esc(r.data.title)} verildi</b><div class="muted small">${fmtTime(d.ts)} · ${esc(memberName(d.owner_id))}</div></div><button class="link small" data-act="doseUndo" data-id="${r.id}">geri al</button></div>`;
     const nh = nextHour(r);
     return `<div class="card" style="border:2px solid var(--accent)"><div class="row"><span style="font-size:2rem">💊</span><div class="grow"><h3>${esc(r.data.title)} · bugün</h3><p class="muted small">${nh ? `Verilmezse sıradaki hatırlatma: ${nh}` : 'Bugünün hatırlatmaları bitti; verdiysen işaretlemen yeter.'}</p></div></div>
-      <button class="btn block" style="margin-top:12px;min-height:60px;font-size:1.1rem" data-act="dose" data-id="${r.id}">${esc(r.data.title)} verildi ✓</button></div>`;
+      <button class="btn block" style="margin-top:12px;min-height:60px;font-size:1.1rem" data-act="dose" data-id="${r.id}">Verildi olarak işaretle ✓</button></div>`;
   }).join('');
 }
 async function closeNotifs(rid) { try { const reg = await navigator.serviceWorker?.getRegistration(); (await reg?.getNotifications({ tag: 'ninni-' + rid }))?.forEach(n => n.close()); } catch (e) { } }
@@ -1476,7 +1478,7 @@ function checkinCard() {
     <button class="link small" style="margin-top:10px" data-act="snooze" data-k="checkin" data-d="2">${t('later')}</button></div>`;
 }
 function linkCard() {
-  if (!S.sb || !CONFIG.GOOGLE || !S.session?.user?.is_anonymous || snoozed('link')) return '';
+  if (!S.sb || !CONFIG.GOOGLE || hasGoogle() || snoozed('link')) return '';
   return `<div class="card soft"><h3>🔐 ${t('link_t')}</h3><p class="small">${t('link_p')}</p><div class="row" style="margin-top:10px"><button class="btn sm" data-act="linkGoogle">${t('link_btn')}</button><button class="link small" data-act="snooze" data-k="link" data-d="5">${t('later')}</button></div></div>`;
 }
 function pregnancyCards() {
@@ -1522,7 +1524,7 @@ VIEWS.today = () => {
   ${S.local && !S.sb ? '' : !S.online ? `<p class="center muted tiny">${t('offline')}</p>` : ''}`;
 };
 function lovedExtras() {
-  const mem = ['moment', 'first', 'note', 'mphoto', 'frame'].flatMap(k => E(k)).sort((a, b) => new Date(b.ts) - new Date(a.ts)).slice(0, 4);
+  const mem = ['moment', 'first', 'note', 'mphoto'].flatMap(k => E(k)).sort((a, b) => new Date(b.ts) - new Date(a.ts)).slice(0, 4);
   return `${mem.length ? `<div class="card"><h3>Son anlar</h3>${mem.map(memItem).join('<div class="hr"></div>')}</div>` : ''}
   <div class="card row" data-act="tab" data-t="child" style="cursor:pointer"><div style="font-size:2rem">🎁</div><div class="grow"><h3>İstek listesi</h3><p class="muted small">${esc(TR.dat(TR.cap(babyName())))} küçük bir sürpriz?</p></div></div>`;
 }
@@ -1549,7 +1551,7 @@ function nightView() {
       <button class="nbtn" data-act="diaper">${t('diaper')}</button>
       <button class="nbtn" data-act="noise">${t('noise')}<small>${Sound.on ? Sound.label : ''}</small></button>
     </div>
-    ${isParent() ? reminders().filter(r => !doseOf(r)).map(r => `<button class="nbtn" style="min-height:76px;width:100%;border-color:var(--deep)" data-act="dose" data-id="${r.id}">💊 ${esc(r.data.title)} verildi</button>`).join('') : ''}
+    ${isParent() ? reminders().filter(r => !doseOf(r)).map(r => `<button class="nbtn" style="min-height:76px;width:100%;border-color:var(--deep)" data-act="dose" data-id="${r.id}">💊 ${esc(r.data.title)}<small>verildi olarak işaretle</small></button>`).join('') : ''}
     <button class="btn ghost block" data-act="breathe">${t('breathe')} · 1 dakika</button>
   </div>`;
 }
@@ -1649,7 +1651,7 @@ A.pickPhoto = async d => {
 };
 
 /* ══════════════════════════ ANILAR ══════════════════════════ */
-const MEM_KINDS = ['moment', 'note', 'first', 'mphoto', 'frame', 'ultra', 'heart', 'story'];
+const MEM_KINDS = ['moment', 'note', 'first', 'mphoto', 'ultra', 'heart', 'story']; // büyüme kareleri kendi arşivinde
 const canEdit = e => e.subject === 'self' ? e.owner_id === meId() : isParent() || (e.owner_id === meId() && e.kind === 'note');
 function whoLabel(uid) {
   const m = S.members.find(x => x.user_id === uid); if (!m) return '';
@@ -1663,7 +1665,7 @@ function memItem(e) {
   if (e.kind === 'note') { tag = `${esc(whoLabel(e.owner_id))} yazdı`; body = `<div class="txt">${esc(e.data.text)}</div>`; }
   if (e.kind === 'first') { const m = firstMeta(e.data.key); tag = 'İlk'; body = `<div style="font-weight:800;font-size:1.1rem">${m ? m[2] + ' ' : ''}${esc(e.data.title || m?.[1] || '')}</div>${e.data.text ? `<div class="txt">${esc(e.data.text)}</div>` : ''}`; }
   if (e.kind === 'mphoto') { tag = 'Aylık fotoğraf'; body = `<div style="font-weight:800">${e.data.month}. ay</div>`; }
-  if (e.kind === 'frame') { tag = 'Büyüme karesi'; body = `<div style="font-weight:800">${e.data.week || frameWeek(e.ts)}. hafta${e.data.month ? ' · ' + e.data.month + '. ay' : ''}</div>`; }
+  if (e.kind === 'frame') { tag = 'Büyüme karesi'; body = `<div style="font-weight:800">${dayLabel2(frameDay(e.ts))} · ${e.data.week || frameWeek(e.ts)}. hafta${e.data.month ? ' · ' + e.data.month + '. ay' : ''}</div>`; }
   if (e.kind === 'ultra') { tag = 'Ultrason'; body = `${e.data.week ? `<div style="font-weight:800">${e.data.week}. hafta</div>` : ''}${e.data.text ? `<div class="txt">${esc(e.data.text)}</div>` : ''}`; }
   if (e.kind === 'heart') { tag = 'Kalp atışı 💓'; body = `${e.data.bpm ? `<div style="font-weight:800">${esc(e.data.bpm)} atım</div>` : ''}${e.data.text ? `<div class="txt">${esc(e.data.text)}</div>` : ''}`; }
   if (e.kind === 'story') { tag = 'Doğum hikâyesi'; body = `<div class="txt">${esc(whoLabel(e.owner_id))} anlattı</div>`; }
@@ -1937,9 +1939,18 @@ A.letterNote = async d => {
 };
 
 /* ══════════════════════════ BÜYÜME KARELERİ (çekim yardımcısı + değişim videosu) ══════════════════════════
-   Takvim yok, "kaçırma" yok: kart hep durur. Her kare haftalık seriye girer; ay dönümüne ±3 gün yakınsa
-   aylık seriye de işaretlenir. Kareler 9:16, 1125×2000 px saklanır (videoda keskin olsun diye). */
-const FRAME_W = 1125, FRAME_H = 2000, FRAME_URGENT_DAYS = 10;
+   Takvim yok, "kaçırma" yok: kart hep durur. Ritim günlük (varsayılan) ya da haftalık; sadece kartın ne zaman
+   yukarı çıkacağını belirler. Kareler günlük/haftalık/aylık serilere ayrılır (aylık: ay dönümüne ±3 gün).
+   Kareler 9:16, 1125×2000 px saklanır (videoda keskin olsun diye). */
+const FRAME_W = 1125, FRAME_H = 2000;
+const frameRhythm = () => S.prefs.frameRhythm || 'daily';
+const frameUrgentDays = () => frameRhythm() === 'daily' ? 3 : 10;
+const frameDay = ts => daysBetween(birthOf(), ts);
+const dayLabel2 = n => n <= 0 ? 'Doğduğu gün' : `${n}. gün`;
+function lastPer(keyFn) { const m = new Map(); for (const e of frames()) m.set(keyFn(e), e); return [...m.values()]; } // her gruptaki SON kare
+const dailySeries = () => lastPer(e => ymd(e.ts)).map(e => ({ e, label: dayLabel2(frameDay(e.ts)) }));
+const weeklySeries = () => lastPer(e => e.data.week || frameWeek(e.ts)).map(e => ({ e, label: `${e.data.week || frameWeek(e.ts)}. hafta` }));
+const seriesOf = k => k === 'm' ? monthlySeries().map(m => ({ e: m.e, label: `${m.month}. ay` })) : k === 'w' ? weeklySeries() : dailySeries();
 const frames = () => [...E('frame'), ...E('mphoto')].sort((a, b) => new Date(a.ts) - new Date(b.ts)); // eski → yeni
 const frameWeek = ts => Math.floor(daysBetween(birthOf(), ts) / 7) + 1;
 function frameMonth(ts) {
@@ -1955,10 +1966,11 @@ function frameCard(position) {
   const b = baby(); if (!isParent() || b?.status !== 'born') return '';
   const fr = frames(); const last = fr[fr.length - 1];
   const days = last ? daysBetween(last.ts, new Date()) : null;
-  const urgent = !last || days >= FRAME_URGENT_DAYS;
+  const urgent = !last || days >= frameUrgentDays();
   if ((position === 'top') !== urgent) return '';
+  const n = dailySeries().length;
   const when = !last ? 'Henüz ilk kare yok. İlkini bugün çekebilirsin; her kare değişim videosuna eklenir.'
-    : days === 0 ? `En son bugün çekildi · ${fr.length} kare` : days === 1 ? `En son dün çekildi · ${fr.length} kare`
+    : days === 0 ? `Bugün çekildi ✓ · ${n} gün` : days === 1 ? `En son dün çekildi · ${n} gün`
     : `En son ${days} gün önce (${fmtNum(last.ts)}) çekildi`;
   return `<div class="card ${urgent ? '' : 'soft'} row">${last ? `<div class="avatar" style="border-radius:12px;width:46px;height:62px" data-photo="${last.photo_path}"></div>` : `<div style="font-size:1.8rem">📸</div>`}
     <div class="grow"><h3 style="${urgent ? '' : 'font-size:.95rem'}">Büyüme karesi</h3><p class="muted small">${when}</p></div>
@@ -1972,7 +1984,7 @@ A.frameShoot = async () => {
   const aligned = await alignEditor(shot, ghost); if (!aligned) return;
   const ts = nowISO(); const week = frameWeek(ts), month = frameMonth(ts);
   await saveEntry({ kind: 'frame', ts, data: { week, month }, photo_path: await storePhoto(aligned) });
-  toast(`${week}. hafta karesi saklandı 📸${month ? ' · ' + month + '. ay' : ''}`); render(); firstPhotoNotice();
+  toast(`${dayLabel2(frameDay(ts))} karesi saklandı 📸${month ? ' · ' + month + '. ay' : ''}`); render(); firstPhotoNotice();
 };
 
 const GUIDES = `<svg class="guides" viewBox="0 0 90 160" preserveAspectRatio="none" aria-hidden="true">
@@ -2072,10 +2084,27 @@ async function alignEditor(blob, ghostURL) {
 /* ── değişim videosu: telefonda üretilir (canvas + MediaRecorder), sunucuya hiçbir şey gitmez */
 async function makeTimelapse(items, per, onProg) {
   await ensureFonts();
+  if (items.length < 2) throw new Error('en az 2 kare');
   const W = 1080, H = 1920, c = document.createElement('canvas'); c.width = W; c.height = H; const ctx = c.getContext('2d');
-  const imgs = [];
-  for (const [i, it] of items.entries()) { const b = await photoBlob(it.e.photo_path); if (b) imgs.push({ img: await blobImage(b), label: it.label }); onProg?.(i / items.length * .2, 'Kareler hazırlanıyor…'); }
-  if (imgs.length < 2) throw new Error('en az 2 kare');
+  // Kareler SIRAYLA yüklenir ve bırakılır: 365 kareyi birden belleğe almak iPhone'u çökertir.
+  const cache = new Map();
+  const load = i => {
+    if (i < 0 || i >= items.length) return null;
+    if (cache.has(i)) return cache.get(i);
+    const p = (async () => {
+      const b = await photoBlob(items[i].e.photo_path); if (!b) { cache.set(i, { img: null }); return null; }
+      const url = URL.createObjectURL(b); const img = new Image(); img.src = url;
+      try { await Promise.race([img.decode(), sleep(1500)]); } catch (e) { } // decode bazı durumlarda hiç dönmeyebiliyor
+      const v = { img, url }; cache.set(i, v); return v;
+    })();
+    cache.set(i, p); return p;
+  };
+  const ready = i => { const v = cache.get(i); return v && !(v instanceof Promise) ? v.img : null; };
+  let shown = null; // ekrandaki son kare: yenisi henüz yüklenmediyse bu gösterilir, o yüzden ASLA bırakılmaz
+  const release = below => { for (const [k, v] of cache) if (k < below && !(v instanceof Promise) && (below === Infinity || v.img !== shown)) { if (v.url) URL.revokeObjectURL(v.url); if (v.img) v.img.src = ''; cache.delete(k); } };
+  for (let i = 0; i < Math.min(5, items.length); i++) { await load(i); onProg?.(i / 5 * .1, 'Kareler hazırlanıyor…'); }
+  await load(items.length - 1);
+  const imgs = { length: items.length }; // aşağıdaki çizim kodu için uyumluluk
   const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
   if (!mime || !c.captureStream) throw new Error('Bu tarayıcı video kaydını desteklemiyor');
   const paper = document.createElement('canvas'); paper.width = W; paper.height = H; paperBg(paper.getContext('2d'), W, H, seeded('tl'));
@@ -2084,17 +2113,23 @@ async function makeTimelapse(items, per, onProg) {
   const hand = (txt, size, y, color = '#fff', shadow = true) => { ctx.save(); ctx.font = `600 ${size}px Caveat`; ctx.textAlign = 'center'; ctx.fillStyle = color; if (shadow) { ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 18; } ctx.fillText(txt, W / 2, y); ctx.restore(); };
   const brandMark = () => { ctx.save(); ctx.globalAlpha = .55; ctx.fillStyle = '#fff'; ctx.font = '700 28px Nunito'; ctx.textAlign = 'center'; ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 8; ctx.fillText('ninni', W / 2, H - 60); ctx.restore(); };
   const fade = Math.min(.3, per * .45), intro = 1.6, outro = 2.2, total = intro + imgs.length * per + outro;
+  shown = ready(0);
   const draw = t => {
     if (t < intro) { ctx.drawImage(paper, 0, 0); hand(name, 150, H / 2 - 20, inkColor(), false); hand('büyüyor…', 90, H / 2 + 100, TEXT_INK, false); ctx.globalAlpha = 1; return; }
     const tt = t - intro;
     if (tt < imgs.length * per) {
       const i = Math.floor(tt / per), local = tt - i * per;
+      for (let k = 1; k <= 6; k++) load(i + k);
+      const cur = ready(i), prev = ready(i - 1);
+      if (cur) shown = cur;
+      release(i - 1);
       ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-      if (i > 0 && local < fade) { cover(imgs[i - 1].img); cover(imgs[i].img, local / fade); } else cover(imgs[i].img);
-      hand(imgs[i].label, 96, H - 170); brandMark(); return;
+      if (cur && prev && local < fade) { cover(prev); cover(cur, local / fade); } else if (shown) cover(shown);
+      hand(items[i].label, 96, H - 170); brandMark(); return;
     }
-    cover(imgs[imgs.length - 1].img); ctx.fillStyle = 'rgba(251,246,236,.82)'; ctx.fillRect(0, 0, W, H);
-    hand(name, 130, H / 2 - 30, inkColor(), false); hand(imgs[0].label + ' → ' + imgs[imgs.length - 1].label, 70, H / 2 + 70, TEXT_INK, false);
+    const last = ready(items.length - 1) || shown; if (last) cover(last);
+    ctx.fillStyle = 'rgba(251,246,236,.82)'; ctx.fillRect(0, 0, W, H);
+    hand(name, 130, H / 2 - 30, inkColor(), false); hand(items[0].label + ' → ' + items[items.length - 1].label, 70, H / 2 + 70, TEXT_INK, false);
     ctx.save(); ctx.globalAlpha = .35; ctx.fillStyle = TEXT_INK; ctx.font = '700 30px Nunito'; ctx.textAlign = 'center'; ctx.fillText('ninni', W / 2, H - 60); ctx.restore();
   };
   draw(0);
@@ -2104,21 +2139,25 @@ async function makeTimelapse(items, per, onProg) {
   // rAF değil setTimeout: uygulama arka plana geçse de (yavaşlasa da) video yarıda kalmaz
   await new Promise(res => { const step = () => { const t = (performance.now() - t0) / 1000; draw(Math.min(t, total)); onProg?.(.2 + .8 * Math.min(1, t / total), 'Video oluşuyor…'); if (t >= total) return res(); setTimeout(step, 1000 / 30); }; step(); });
   await new Promise(r => { rec.onstop = r; rec.stop(); });
+  release(Infinity);
   return new Blob(chunks, { type: mime.split(';')[0] });
 }
+const SERIES_NAMES = { d: 'Günlük', w: 'Haftalık', m: 'Aylık' };
 A.frameVideo = () => {
-  const weekly = frames().length, monthly = monthlySeries().length;
+  const avail = ['d', 'w', 'm'].map(k => [k, seriesOf(k).length]).filter(([, n]) => n > 1);
+  const updateEta = root => { const n = seriesOf(chipVal('tvS') || 'd').length, p = +(chipVal('tvP') || .2); $('#tvEta', root).textContent = `${n} kare · yaklaşık ${Math.round(n * p + 4)} saniyelik video`; };
   openSheet(`<h2>🎬 Değişim videosu</h2>
     <div class="f"><span style="font-weight:700;font-size:.92rem">Seri</span><div class="chips" id="tvS" style="margin-top:8px">
-      <button class="chip on" data-v="w">Haftalık (${weekly} kare)</button>${monthly > 1 ? `<button class="chip" data-v="m">Aylık (${monthly} kare)</button>` : ''}</div></div>
+      ${avail.map(([k, n], i) => `<button class="chip ${i === 0 ? 'on' : ''}" data-v="${k}">${SERIES_NAMES[k]} (${n})</button>`).join('')}</div></div>
     <div class="f"><span style="font-weight:700;font-size:.92rem">Kare başına</span><div class="chips" id="tvP" style="margin-top:8px">
-      ${[['0.3', 'Hızlı'], ['0.6', 'Orta'], ['1', 'Yavaş']].map(([v, l], i) => `<button class="chip ${i === 1 ? 'on' : ''}" data-v="${v}">${l} · ${v} sn</button>`).join('')}</div></div>
+      ${[['0.1', 'Çok hızlı'], ['0.2', 'Hızlı'], ['0.4', 'Orta'], ['0.8', 'Yavaş']].map(([v, l], i) => `<button class="chip ${i === 1 ? 'on' : ''}" data-v="${v}">${l} · ${v.replace('.', ',')} sn</button>`).join('')}</div></div>
+    <p class="muted small center" id="tvEta"></p>
     <button class="btn block" data-act="frameVideoGo">Videoyu oluştur</button>
-    <p class="muted tiny center" style="margin-top:10px">Video telefonunda oluşur; birkaç saniye sürer, ekranı açık tut.</p>`, chipGroup);
+    <p class="muted tiny center" style="margin-top:10px">Video telefonunda oluşur; oluşurken ekranı açık tut.</p>`, root => { chipGroup(root); updateEta(root); root.addEventListener('click', () => setTimeout(() => updateEta(root), 0)); });
 };
 A.frameVideoGo = async (_, btn) => {
-  const series = chipVal('tvS'), per = +chipVal('tvP');
-  const items = series === 'm' ? monthlySeries().map(m => ({ e: m.e, label: `${m.month}. ay` })) : frames().map(e => ({ e, label: `${e.data.week || frameWeek(e.ts)}. hafta` }));
+  const series = chipVal('tvS') || 'd', per = +chipVal('tvP');
+  const items = seriesOf(series);
   btn.disabled = true;
   try {
     const blob = await makeTimelapse(items, per, (p, msg) => { btn.textContent = `${msg} %${Math.round(p * 100)}`; });
@@ -2134,15 +2173,21 @@ A.frameVideoGo = async (_, btn) => {
 };
 function framesArchive() {
   const b = baby(); if (b?.status !== 'born') return '';
-  const fr = frames(); const mode = S.frMode || 'w';
-  const list = mode === 'm' ? monthlySeries().map(m => ({ e: m.e, label: `${m.month}. ay` })) : fr.map(e => ({ e, label: `${e.data.week || frameWeek(e.ts)}. hf` }));
+  const fr = frames(); const mode = S.frMode || 'd';
+  const all = seriesOf(mode).slice().reverse(); // yeni → eski
+  const list = S.frAll ? all : all.slice(0, 28);
   return `<div class="card"><div class="row between"><h3>📸 Büyüme kareleri</h3>${isParent() ? `<button class="btn sm ghost" data-act="frameShoot">Çek</button>` : ''}</div>
-    ${fr.length ? `<div class="chips" style="margin:10px 0">${[['w', 'Haftalık'], ['m', 'Aylık']].map(([k, l]) => `<button class="chip ${mode === k ? 'on' : ''}" data-act="frMode" data-m="${k}">${l}</button>`).join('')}</div>
+    ${fr.length ? `<div class="chips" style="margin:10px 0">${Object.entries(SERIES_NAMES).map(([k, l]) => `<button class="chip ${mode === k ? 'on' : ''}" data-act="frMode" data-m="${k}">${l}</button>`).join('')}</div>
       <div class="grid3" style="grid-template-columns:repeat(4,1fr)">${list.map(it => `<div><div class="ph" style="aspect-ratio:9/16" data-photo="${it.e.photo_path}" data-act="openMem" data-id="${it.e.id}"></div><div class="tiny muted center">${it.label}</div></div>`).join('')}</div>
+      ${all.length > 28 ? `<button class="link small" style="margin-top:8px" data-act="frAll">${S.frAll ? 'Son 28 kareyi göster' : `Tümünü göster (${all.length})`}</button>` : ''}
       <div class="row" style="gap:8px;margin-top:12px">${fr.length > 1 ? `<button class="btn sm grow" data-act="frameVideo">🎬 Değişim videosu</button>` : ''}${monthlySeries().length > 1 ? `<button class="btn sm ghost grow" data-act="collage">Aylık kolaj</button>` : ''}</div>`
-      : `<p class="muted small">Haftada bir, aynı köşede, aynı açıyla bir kare. Biriktikçe buradan değişim videosu oluşur.</p>`}</div>`;
+      : `<p class="muted small">Her gün aynı köşede, aynı açıyla bir kare. Biriktikçe buradan değişim videosu oluşur.</p>`}
+    ${isParent() ? `<div class="hr"></div><div class="row between small"><span class="muted">Hatırlatma ritmi</span><div class="chips">${[['daily', 'Günlük'], ['weekly', 'Haftalık']].map(([k, l]) => `<button class="chip ${frameRhythm() === k ? 'on' : ''}" data-act="frRhythm" data-v="${k}">${l}</button>`).join('')}</div></div>
+      <p class="muted tiny">${frameRhythm() === 'daily' ? '3 gün' : '10 gün'} çekilmezse kart ana ekranda yukarı çıkar; başka hiçbir uyarı yok.</p>` : ''}</div>`;
 }
-A.frMode = d => { S.frMode = d.m; refresh(); };
+A.frMode = d => { S.frMode = d.m; S.frAll = false; refresh(); };
+A.frAll = () => { S.frAll = !S.frAll; refresh(); };
+A.frRhythm = async d => { S.prefs.frameRhythm = d.v; await savePrefs(); refresh(); };
 
 /* ══════════════════════════ BEBEK SEKMESİ ══════════════════════════ */
 VIEWS.child = () => {
@@ -2530,7 +2575,7 @@ function settingsHTML() {
     <p class="muted small">${esc(t('photo_note', { name: TR.gen(TR.cap(babyName())) }))}</p>
     <div class="row wrap" style="gap:8px;margin-top:12px"><button class="btn sm" data-act="exportAll">Anıları indir</button>${isParent() ? `<button class="btn sm ghost" data-act="importAll">İçe aktar</button>` : ''}</div>
     ${S.sb && !S.local ? `<div class="hr"></div><p class="small">Aynı hesabı bilgisayarında, tabletinde ya da yeni telefonunda da aç. Bu cihaz kapanmaz.</p><button class="btn sm ghost" style="margin-top:8px" data-act="addDevice">📲 Cihaz ekle</button>` : ''}
-    ${S.sb && CONFIG.GOOGLE && S.session?.user?.is_anonymous ? `<div class="hr"></div><p class="small">${t('link_p')}</p><button class="btn sm" data-act="linkGoogle">${t('link_btn')}</button>` : S.session?.user && !S.session.user.is_anonymous ? `<div class="hr"></div><p class="small muted">🔐 Hesabın Google ile bağlı.</p>` : ''}
+    ${S.sb && CONFIG.GOOGLE ? (hasGoogle() ? `<div class="hr"></div><p class="small muted">🔐 Hesabın Google ile bağlı.</p>` : `<div class="hr"></div><p class="small">${t('link_p')}</p><button class="btn sm" data-act="linkGoogle">${t('link_btn')}</button>`) : ''}
   </div>
   ${accountCard()}
   <p class="muted tiny center" data-act="diag" style="cursor:default">Ninni ${APP_VERSION} · ${t('appSub')} · Analitik yok, reklam yok. Veriler sadece ailenle senin aranda.</p>`;
@@ -2800,7 +2845,7 @@ function entryCardSpec(e) {
   const sub = `${fmtDateY(e.ts)} · ${age}`;
   if (e.kind === 'first') return { title: e.data.title, text: e.data.text, sub };
   if (e.kind === 'mphoto') return { title: `${name} · ${e.data.month}. ay`, sub: fmtDateY(e.ts) };
-  if (e.kind === 'frame') return { title: `${name} · ${e.data.week || frameWeek(e.ts)}. hafta`, sub: fmtDateY(e.ts) };
+  if (e.kind === 'frame') return { title: `${name} · ${dayLabel2(frameDay(e.ts)).toLocaleLowerCase('tr')}`, sub: fmtDateY(e.ts) };
   if (e.kind === 'note') return { title: `${whoLabel(e.owner_id)} yazdı`, text: e.data.text, sub };
   if (e.kind === 'ultra') return { title: e.data.week ? `${e.data.week}. hafta` : 'Seni ilk gördüğümüz an', text: e.data.text, sub: fmtDateY(e.ts) };
   if (e.kind === 'heart') return { title: 'Kalbinin sesi 💓', text: [e.data.bpm ? e.data.bpm + ' atım' : '', e.data.text].filter(Boolean).join('\n'), sub: fmtDateY(e.ts) };
