@@ -233,7 +233,7 @@ const CONFIG = {
   VAPID_PUBLIC: 'BGf6f0QkJEnf1MhJ-mp8N5rosyh45ZPmUiHFYPTMGklqzU1PNe9f5f_LBZJpNXhP9wAoNF111jF0NeBE8sA-bRc', // push bildirim açık anahtarı
   COUNTRY: 'DE'          // U-muayeneleri & destek kaynakları için varsayılan
 };
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.1';
 
 /* ══════════════════════════ METİNLER (TR) ══════════════════════════
    Tüm görünür metinler burada; İngilizce sonradan aynı anahtarlarla eklenecek. */
@@ -1951,7 +1951,7 @@ A.letterNote = async d => {
    Kareler 9:16, 1125×2000 px saklanır (videoda keskin olsun diye). */
 const FRAME_W = 1125, FRAME_H = 2000;
 const frameRhythm = () => S.prefs.frameRhythm || 'daily';
-const frameUrgentDays = () => frameRhythm() === 'daily' ? 3 : 10;
+const frameUrgentDays = () => frameRhythm() === 'daily' ? 1 : 10; // günlükte: bugün çekilmediyse kart üstte
 const frameDay = ts => daysBetween(birthOf(), ts);
 const dayLabel2 = n => n <= 0 ? 'Doğduğu gün' : `${n}. gün`;
 function lastPer(keyFn) { const m = new Map(); for (const e of frames()) m.set(keyFn(e), e); return [...m.values()]; } // her gruptaki SON kare
@@ -1976,9 +1976,12 @@ function frameCard(position) {
   const urgent = !last || days >= frameUrgentDays();
   if ((position === 'top') !== urgent) return '';
   const n = dailySeries().length;
+  const daily = frameRhythm() === 'daily';
   const when = !last ? 'Henüz ilk kare yok. İlkini bugün çekebilirsin; her kare değişim videosuna eklenir.'
-    : days === 0 ? `Bugün çekildi ✓ · ${n} gün` : days === 1 ? `En son dün çekildi · ${n} gün`
-    : `En son ${days} gün önce (${fmtNum(last.ts)}) çekildi`;
+    : days === 0 ? `Bugün çekildi ✓ · ${n} gün`
+    : daily && days === 1 ? `Bugünün karesi seni bekliyor 🤍 · en son dün çekildi`
+    : daily ? `Bugünün karesi seni bekliyor 🤍 · en son ${days} gün önce (${fmtNum(last.ts)})`
+    : days === 1 ? `En son dün çekildi · ${n} gün` : `En son ${days} gün önce (${fmtNum(last.ts)}) çekildi`;
   return `<div class="card ${urgent ? '' : 'soft'} row">${last ? `<div class="avatar" style="border-radius:12px;width:46px;height:62px" data-photo="${last.photo_path}"></div>` : `<div style="font-size:1.8rem">📸</div>`}
     <div class="grow"><h3 style="${urgent ? '' : 'font-size:.95rem'}">Büyüme karesi</h3><p class="muted small">${when}</p></div>
     <button class="btn sm ${urgent ? '' : 'ghost'}" data-act="frameShoot">Çek</button></div>`;
@@ -2204,7 +2207,7 @@ function framesArchive() {
       <div class="row" style="gap:8px;margin-top:12px">${fr.length > 1 ? `<button class="btn sm grow" data-act="frameVideo">🎬 Değişim videosu</button>` : ''}${monthlySeries().length > 1 ? `<button class="btn sm ghost grow" data-act="collage">Aylık kolaj</button>` : ''}</div>`
       : `<p class="muted small">Her gün aynı köşede, aynı açıyla bir kare. Biriktikçe buradan değişim videosu oluşur.</p>`}
     ${isParent() ? `<div class="hr"></div><div class="row between small"><span class="muted">Hatırlatma ritmi</span><div class="chips">${[['daily', 'Günlük'], ['weekly', 'Haftalık']].map(([k, l]) => `<button class="chip ${frameRhythm() === k ? 'on' : ''}" data-act="frRhythm" data-v="${k}">${l}</button>`).join('')}</div></div>
-      <p class="muted tiny">${frameRhythm() === 'daily' ? '3 gün' : '10 gün'} çekilmezse kart ana ekranda yukarı çıkar; başka hiçbir uyarı yok.</p>` : ''}</div>`;
+      <p class="muted tiny">${frameRhythm() === 'daily' ? 'O gün çekilmediyse kart her gün ana ekranın üstünde durur' : '10 gün çekilmezse kart ana ekranda yukarı çıkar'}; çekince aşağı iner. Başka hiçbir uyarı yok.</p>` : ''}</div>`;
 }
 /* ── favoriler: ailede ortak (data.fav). Ebeveynler kalp koyar, herkes görür. */
 const PHOTO_KINDS = ['frame', 'mphoto', 'moment', 'first', 'ultra', 'note'];
