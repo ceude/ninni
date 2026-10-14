@@ -233,7 +233,7 @@ const CONFIG = {
   VAPID_PUBLIC: 'BGf6f0QkJEnf1MhJ-mp8N5rosyh45ZPmUiHFYPTMGklqzU1PNe9f5f_LBZJpNXhP9wAoNF111jF0NeBE8sA-bRc', // push bildirim açık anahtarı
   COUNTRY: 'DE'          // U-muayeneleri & destek kaynakları için varsayılan
 };
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.5.2';
 
 /* ══════════════════════════ METİNLER (TR) ══════════════════════════
    Tüm görünür metinler burada; İngilizce sonradan aynı anahtarlarla eklenecek. */
@@ -2308,7 +2308,8 @@ function apptCard() {
   const up = E('appt').filter(a => !a.data.done && new Date(a.ts) > Date.now() - 6 * 36e5).reverse();
   return `<div class="card"><div class="row between"><h3>📅 Terminler</h3><button class="btn sm ghost" data-act="apptForm">${t('add')}</button></div>
     ${up.length ? up.map(a => `<button class="list-item" style="width:100%;text-align:left" data-act="apptForm" data-id="${a.id}"><div class="grow"><b>${esc(a.data.title)}</b><div class="muted small">${fmtWeekday(a.ts)} · ${fmtTime(a.ts)}${a.data.place ? ' · ' + esc(a.data.place) : ''}</div></div><span class="muted small">${daysBetween(new Date(), a.ts) <= 0 ? 'bugün' : daysBetween(new Date(), a.ts) + ' gün'}</span></button>`).join('')
-      : `<p class="muted small">Yaklaşan termin yok. 3 günden az kalınca ana ekranın en üstünde nazikçe hatırlatırız.</p>`}</div>`;
+      : `<p class="muted small">Yaklaşan termin yok. 3 günden az kalınca ana ekranın en üstünde nazikçe hatırlatırız.</p>`}
+    ${(() => { const done = E('appt').filter(a => a.data.done && Date.now() - new Date(a.ts) < 14 * DAY).slice(0, 4); return done.length ? `<div class="tiny muted" style="margin-top:10px">Son yapılanlar</div>${done.map(a => `<button class="list-item" style="width:100%;text-align:left;min-height:46px" data-act="${a.data.code ? 'examForm' : 'apptForm'}" data-code="${a.data.code || ''}" data-id="${a.id}"><span>✓</span><span class="grow small">${esc(a.data.title)}</span><span class="muted tiny">${fmtDate(a.ts, { day: 'numeric', month: 'short' })}</span></button>`).join('')}` : ''; })()}</div>`;
 }
 function examStatus(code) { const a = E('appt').filter(x => x.data.code === code).sort((x, y) => new Date(y.ts) - new Date(x.ts)); return a.find(x => x.data.done) ? { done: a.find(x => x.data.done) } : a[0] ? { plan: a[0] } : {}; }
 function uCard() {
@@ -2345,8 +2346,18 @@ A.examForm = d => {
     <label class="f"><span>Yer (istersen)</span><input class="in" id="ePl" value="${esc(plan?.data.place || '')}" placeholder="ör. Dr. … Kinderarztpraxis"></label>
     <button class="btn block" data-act="examSave" data-code="${d.code}" data-title="${esc(title)}">Termini kaydet</button>
     <button class="btn ghost block" style="margin-top:10px" data-act="examDone" data-code="${d.code}" data-title="${esc(title)}">${st.done ? 'Tarihi güncelle' : 'Yapıldı olarak işaretle ✓'}</button>
-    ${plan ? `<button class="btn line block" style="margin-top:10px" data-act="ics" data-id="${plan.id}">Takvime ekle</button>` : ''}`);
+    ${plan ? `<button class="btn line block" style="margin-top:10px" data-act="ics" data-id="${plan.id}">Takvime ekle</button>` : ''}
+    ${st.done ? `<div class="hr"></div><button class="btn ghost block" data-act="examUndo" data-id="${st.done.id}">↩︎ Yapılmadı olarak geri al</button>` : ''}
+    ${plan ? `<button class="link center block" style="margin-top:12px;width:100%" data-act="examDel" data-id="${plan.id}">Kaydı tamamen sil</button>` : ''}`);
 };
+A.examUndo = async d => {
+  const a = S.entries.get(d.id); if (!a) return;
+  // Tarih geçmişteyse geriye anlamlı bir termin kalmaz → kaydı kaldır; ileri bir tarihse termin olarak kalsın
+  if (new Date(a.ts) <= new Date()) await removeEntry(a.id);
+  else await saveEntry({ id: a.id, data: { ...a.data, done: false } });
+  closeSheet(); toast('Geri alındı 🤍'); render();
+};
+A.examDel = async d => { await removeEntry(d.id); closeSheet(); toast('Kayıt silindi'); render(); };
 A.examSave = async d => {
   const v = $('#eTs').value; if (!v) return $('#eTs').focus();
   const st = examStatus(d.code);
@@ -2369,6 +2380,7 @@ A.apptForm = d => {
     <label class="f"><span>Yer</span><input class="in" id="aPl" value="${esc(a?.data.place || '')}"></label>
     <label class="f"><span>Not</span><input class="in" id="aNo" value="${esc(a?.data.note || '')}"></label>
     <button class="btn block" data-act="apptSave" data-id="${a?.id || ''}">${t('save')}</button>
+    ${a?.data.done ? `<button class="btn ghost block" style="margin-top:10px" data-act="examUndo" data-id="${a.id}">↩︎ Yapılmadı olarak geri al</button>` : ''}
     ${a ? `<button class="btn line block" style="margin-top:10px" data-act="ics" data-id="${a.id}">Takvime ekle</button><button class="btn ghost block" style="margin-top:10px" data-act="memDel" data-id="${a.id}">${t('del')}</button>` : ''}`);
 };
 A.apptSave = async d => {
