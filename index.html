@@ -237,7 +237,7 @@ const CONFIG = {
   VAPID_PUBLIC: 'BGf6f0QkJEnf1MhJ-mp8N5rosyh45ZPmUiHFYPTMGklqzU1PNe9f5f_LBZJpNXhP9wAoNF111jF0NeBE8sA-bRc', // push bildirim açık anahtarı
   COUNTRY: 'DE'          // U-muayeneleri & destek kaynakları için varsayılan
 };
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.7.0';
 
 /* ══════════════════════════ METİNLER (TR) ══════════════════════════
    Tüm görünür metinler burada; İngilizce sonradan aynı anahtarlarla eklenecek. */
@@ -452,7 +452,8 @@ async function loadLocal() {
   S.grants = await kv.get('grants') || [];
   S.babies = (await IDB.all('babies')).filter(b => !b.deleted);
   S.entries = new Map((await IDB.all('entries')).map(e => [e.id, e]));
-  S.prefs = Object.assign({ nightAuto: true, showPct: false, uExams: CONFIG.COUNTRY === 'DE', vaccines: CONFIG.COUNTRY === 'DE', potty: false, country: CONFIG.COUNTRY }, await kv.get('prefs') || {});
+  S.prefs = Object.assign({ nightAuto: false, showPct: false, uExams: CONFIG.COUNTRY === 'DE', vaccines: CONFIG.COUNTRY === 'DE', potty: false, country: CONFIG.COUNTRY }, await kv.get('prefs') || {});
+  if (!S.prefs.nightDefaultV2) { S.prefs.nightAuto = false; S.prefs.nightDefaultV2 = true; await kv.set('prefs', S.prefs); } // eski kullanıcılarda da otomatik gece modu bir kez kapatılır
   S.babyId = (await kv.get('babyId')) || S.babies[0]?.id || null;
   if (!S.babies.find(b => b.id === S.babyId)) S.babyId = S.babies[0]?.id || null;
 }
@@ -1442,7 +1443,8 @@ function letterCard() {
   const b = baby(); const birth = birthOf(b); if (!birth || b.status !== 'born') return '';
   const n = monthsOld(birth); if (n < 1) return '';
   if (daysBetween(addMonths(birth, n), new Date()) > 6) return '';
-  return `<div class="card" data-act="openLetter" data-n="${n}" style="cursor:pointer;background:linear-gradient(160deg,#fbf6ec,var(--card))"><div class="row"><div style="font-size:2.2rem">💌</div><div class="grow"><h3>${esc(t('letter_ready', { name: TR.dat(TR.cap(babyName())), n }))}</h3><p class="muted small">Bu ayın anları, ilkleri ve küçük sayıları bir mektupta.</p></div></div></div>`;
+  return `<div class="card" style="background:linear-gradient(160deg,#fbf6ec,var(--card))"><div class="row" data-act="openLetter" data-n="${n}" style="cursor:pointer"><div style="font-size:2.2rem">💌</div><div class="grow"><h3>${esc(t('letter_ready', { name: TR.dat(TR.cap(babyName())), n }))}</h3><p class="muted small">Bu ayın anları, ilkleri ve küçük sayıları bir mektupta.</p></div></div>
+    <div class="row" style="gap:8px;margin-top:12px"><button class="btn sm grow" data-act="openLetter" data-n="${n}">💌 Mektubu aç</button><button class="btn sm ghost grow" data-act="monthCard" data-n="${n}">🎀 ${n} aylık kartı</button></div></div>`;
 }
 function momentCard() {
   const today = ymd(new Date());
@@ -1513,6 +1515,7 @@ VIEWS.today = () => {
     <button class="icon-btn" data-act="toggleNight" aria-label="Gece modu">${ICON.moon}</button></div>
   ${upcomingAppts()}
   ${doseCards()}
+  ${paperHomeCard()}
   ${frameCard('top')}
   ${awakeCard()}
   ${heroCard()}
@@ -1659,7 +1662,7 @@ A.pickPhoto = async d => {
 };
 
 /* ══════════════════════════ ANILAR ══════════════════════════ */
-const MEM_KINDS = ['moment', 'note', 'first', 'mphoto', 'ultra', 'heart', 'story']; // büyüme kareleri kendi arşivinde
+const MEM_KINDS = ['moment', 'note', 'first', 'mphoto', 'voice', 'ultra', 'heart', 'story']; // büyüme kareleri kendi arşivinde
 const canEdit = e => e.subject === 'self' ? e.owner_id === meId() : isParent() || (e.owner_id === meId() && e.kind === 'note');
 function whoLabel(uid) {
   const m = S.members.find(x => x.user_id === uid); if (!m) return '';
@@ -1673,6 +1676,7 @@ function memItem(e) {
   if (e.kind === 'note') { tag = `${esc(whoLabel(e.owner_id))} yazdı`; body = `<div class="txt">${esc(e.data.text)}</div>`; }
   if (e.kind === 'first') { const m = firstMeta(e.data.key); tag = 'İlk'; body = `<div style="font-weight:800;font-size:1.1rem">${m ? m[2] + ' ' : ''}${esc(e.data.title || m?.[1] || '')}</div>${e.data.text ? `<div class="txt">${esc(e.data.text)}</div>` : ''}`; }
   if (e.kind === 'mphoto') { tag = 'Aylık fotoğraf'; body = `<div style="font-weight:800">${e.data.month}. ay</div>`; }
+  if (e.kind === 'voice') { tag = 'Ses 🎧'; body = `<button class="btn sm ghost" style="margin:4px 0" data-act="playVoice" data-id="${e.id}">▶︎ ${fmtDur(e.data.dur || 0)}</button>${e.data.text ? `<div class="txt">${esc(e.data.text)}</div>` : ''}`; }
   if (e.kind === 'frame') { tag = 'Büyüme karesi'; body = `<div style="font-weight:800">${dayLabel2(frameDay(e.ts))} · ${e.data.week || frameWeek(e.ts)}. hafta${e.data.month ? ' · ' + e.data.month + '. ay' : ''}</div>`; }
   if (e.kind === 'ultra') { tag = 'Ultrason'; body = `${e.data.week ? `<div style="font-weight:800">${e.data.week}. hafta</div>` : ''}${e.data.text ? `<div class="txt">${esc(e.data.text)}</div>` : ''}`; }
   if (e.kind === 'heart') { tag = 'Kalp atışı 💓'; body = `${e.data.bpm ? `<div style="font-weight:800">${esc(e.data.bpm)} atım</div>` : ''}${e.data.text ? `<div class="txt">${esc(e.data.text)}</div>` : ''}`; }
@@ -1694,7 +1698,7 @@ VIEWS.mem = () => {
   return `
   <div class="top"><h1 class="grow">${t('tab_mem')}</h1></div>
   ${isParent() ? `<div class="chips" style="margin-bottom:14px">
-    <button class="chip" data-act="addMoment">✍️ An</button><button class="chip" data-act="addFirst">🌟 İlk</button>
+    <button class="chip" data-act="addMoment">✍️ An</button><button class="chip" data-act="addFirst">🌟 İlk</button><button class="chip" data-act="recordVoice">🎙️ Ses</button>
     <button class="chip" data-act="bulkImport">🖼️ Galeriden</button>${b?.status === 'born' ? `<button class="chip" data-act="story">📖 Doğum hikâyesi</button>` : `<button class="chip" data-act="ultra">🩻 Ultrason</button>`}
   </div>` : `<div class="chips" style="margin-bottom:14px"><button class="chip" data-act="addNote">✍️ Not bırak</button></div>`}
   ${months || pregLetter ? `<div class="card"><h3>💌 Mektuplar</h3><div class="chips" style="margin-top:8px">
@@ -1927,7 +1931,8 @@ function buildLetter(n) {
   const photos = [];
   const mp = monthlySeries().find(m => m.month == n)?.e; if (mp) photos.push(mp.photo_path);
   [...E('first'), ...E('moment'), ...E('ultra')].filter(e => inR(e) && e.photo_path && !photos.includes(e.photo_path)).slice(0, 3).forEach(e => photos.push(e.photo_path));
-  return { title: preg ? `${TR.dat(name)} · Seni beklerken` : `${TR.dat(name)} ${n}. ay mektubu`, paras: P, sig: parentsSig(), photos, n };
+  const voices = voicesIn(start, end);
+  return { title: preg ? `${TR.dat(name)} · Seni beklerken` : `${TR.dat(name)} ${n}. ay mektubu`, paras: P, sig: parentsSig(), photos, voices, n };
 }
 const fmtKg = w => `${(+w).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} kg`;
 
@@ -1937,11 +1942,15 @@ A.openLetter = d => {
   S.sheetRefresh = null;
   openSheet(`
     ${L.photos[0] ? `<div data-photo="${L.photos[0]}" style="border-radius:8px 8px 0 0;overflow:hidden;max-height:340px"></div>` : ''}
-    <div class="paper"><h2>${esc(L.title)}</h2>${L.paras.map(p => `<p>${esc(p)}</p>`).join('')}<p style="text-align:right">${esc(L.sig)}</p></div>
+    <div class="paper"><h2>${esc(L.title)}</h2>${L.paras.map(p => `<p>${esc(p)}</p>`).join('')}
+      ${L.voices.length ? `<p>Bu ayın sesleri:</p>${L.voices.map(v => `<p><button class="btn sm ghost" style="font-family:var(--font)" data-act="playVoice" data-id="${v.id}">▶︎ ${fmtDur(v.data.dur || 0)}</button> ${esc(v.data.text || 'Bir ses')} <span style="font-size:1rem;color:#9a7f72">· ${fmtDate(v.ts)}</span></p>`).join('')}` : ''}
+      <p style="text-align:right">${esc(L.sig)}</p></div>
+    ${L.voices.length ? `<p class="muted tiny center" style="margin-top:8px">PDF'te ve yıl kitabında bu sesler, okutunca çalan şık birer QR bileti olarak yer alır.</p>` : ''}
     ${n !== 'preg' && isParent() ? `<div class="card" style="margin-top:14px"><h3>Bu aya eklemek istediğin bir şey?</h3><textarea class="in hand" id="lnText" placeholder="Ona bu ay söylemek istediğin…">${esc(myNote?.data.text || '')}</textarea><button class="btn sm" style="margin-top:8px" data-act="letterNote" data-n="${n}">Mektuba ekle</button></div>` : ''}
     <div class="row wrap" style="gap:8px;margin-top:14px">
       <button class="btn grow" data-act="letterStory" data-n="${d.n}">Story olarak paylaş ✨</button>
       <button class="btn ghost grow" data-act="letterPDF" data-n="${d.n}">PDF</button>
+      ${d.n !== 'preg' ? `<button class="btn ghost grow" data-act="monthCard" data-n="${d.n}">🎀 ${d.n} aylık kartı</button>` : ''}
     </div>`);
 };
 A.letterNote = async d => {
@@ -2212,8 +2221,24 @@ function framesArchive() {
       <div class="row" style="gap:8px;margin-top:12px">${fr.length > 1 ? `<button class="btn sm grow" data-act="frameVideo">🎬 Değişim videosu</button>` : ''}${monthlySeries().length > 1 ? `<button class="btn sm ghost grow" data-act="collage">Aylık kolaj</button>` : ''}</div>`
       : `<p class="muted small">Her gün aynı köşede, aynı açıyla bir kare. Biriktikçe buradan değişim videosu oluşur.</p>`}
     ${isParent() ? `<div class="hr"></div><div class="row between small"><span class="muted">Hatırlatma ritmi</span><div class="chips">${[['daily', 'Günlük'], ['weekly', 'Haftalık']].map(([k, l]) => `<button class="chip ${frameRhythm() === k ? 'on' : ''}" data-act="frRhythm" data-v="${k}">${l}</button>`).join('')}</div></div>
-      <p class="muted tiny">${frameRhythm() === 'daily' ? 'O gün çekilmediyse kart her gün ana ekranın üstünde durur' : '10 gün çekilmezse kart ana ekranda yukarı çıkar'}; çekince aşağı iner. Başka hiçbir uyarı yok.</p>` : ''}</div>`;
+      <p class="muted tiny">${frameRhythm() === 'daily' ? 'O gün çekilmediyse kart her gün ana ekranın üstünde durur' : '10 gün çekilmezse kart ana ekranda yukarı çıkar'}; çekince aşağı iner.</p>
+      ${frameNotifyRow()}` : ''}</div>`;
 }
+/* ── isteğe bağlı günlük kare bildirimi (varsayılan kapalı, kişiye özel: sadece açan kişiye gider) */
+const frameNotify = () => E('reminder', { subject: 'self', owner: meId(), babyId: null }).find(e => e.data?.type === 'frame');
+function frameNotifyRow() {
+  if (!S.sb || S.local) return '';
+  const r = frameNotify(); const on = !!r && r.data.active !== false; const h = r?.data.hours?.[0] ?? 19;
+  return `<div class="toggle" style="border-top:1px solid var(--line);margin-top:8px"><span class="small">📸 Bana günlük kare bildirimi gelsin<div class="muted tiny">O gün kare çekildiyse gelmez. Sadece sana; eşin isterse kendi telefonunda açar.</div></span>
+    <label class="sw"><input type="checkbox" data-sw="frameNotify" ${on ? 'checked' : ''}><i></i></label></div>
+    ${on ? `<div class="chips" style="margin-top:6px">${[9, 11, 13, 16, 18, 19, 20, 21].map(x => `<button class="chip ${x === h ? 'on' : ''}" data-act="frameNotifyHour" data-h="${x}">${pad(x)}:00</button>`).join('')}</div>` : ''}`;
+}
+async function setFrameNotify(on, hour) {
+  const prev = frameNotify(); const id = prev?.id || await detId(S.family + ':frameNotify:' + meId());
+  await saveEntry({ id, kind: 'reminder', subject: 'self', baby_id: S.babyId, owner_id: meId(), ts: prev?.ts || nowISO(),
+    data: { type: 'frame', title: 'Büyüme karesi', hours: [hour ?? prev?.data.hours?.[0] ?? 19], active: on, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin' } });
+}
+A.frameNotifyHour = async d => { await setFrameNotify(true, +d.h); toast(`Her gün ${pad(+d.h)}:00'da, o gün kare yoksa 📸`); refresh(); };
 /* ── favoriler: ailede ortak (data.fav). Ebeveynler kalp koyar, herkes görür. */
 const PHOTO_KINDS = ['frame', 'mphoto', 'moment', 'first', 'ultra', 'note'];
 const favPhotos = () => PHOTO_KINDS.flatMap(k => E(k)).filter(e => e.photo_path && e.data?.fav).sort((a, b) => new Date(a.ts) - new Date(b.ts));
@@ -2236,6 +2261,7 @@ VIEWS.child = () => {
   <div class="top">${b?.photo_path ? `<div class="avatar" data-photo="${b.photo_path}"></div>` : `<div class="avatar">👶🏻</div>`}<div class="grow"><h1>${esc(TR.cap(babyName()))}</h1><div class="muted small">${b?.status === 'born' && birthOf() ? fmtDateY(birthOf()) + ' · ' + ageText(birthOf()) : b?.due_date ? 'Beklenen gün: ' + fmtDateY(parseYmd(b.due_date)) : ''}</div></div>
     ${isParent() ? `<button class="icon-btn" data-act="babySettings" aria-label="Ayarlar">⚙️</button>` : ''}</div>
   ${isParent() ? reminderCard() : ''}
+  ${papersCard()}
   ${b?.status === 'born' ? growthCard() : ''}
   ${isParent() ? apptCard() : ''}
   ${isParent() && b?.status === 'born' && S.prefs.uExams ? uCard() : ''}
@@ -2405,6 +2431,74 @@ A.ics = d => {
   const blob = new Blob([ics], { type: 'text/calendar' }); const url = URL.createObjectURL(blob);
   const link = document.createElement('a'); link.href = url; if (!isIOS) link.download = 'termin.ics'; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+};
+
+/* ── Almanya evrak takvimi (doğum tarihine göre; resmi kaynaklardan derlendi, Ekim 2026) */
+const PAPERS = [
+  { key: 'standesamt', icon: '🏛️', title: 'Doğum kaydı · Geburtsurkunde', due: b => ageDate(b, { d: 7 }), when: 'Doğumdan sonraki 1 hafta',
+    info: 'Hastanede doğumda bildirimi hastane yapar; sizin Standesamt\'a belgelerinizi (pasaport, evlilik cüzdanı, isim beyanı) vermeniz gerekir. Genellikle 3 ücretsiz, amaca özel nüsha verilir: Kindergeld, Elterngeld ve Mutterschaftsgeld için.', src: 'https://www.gesetze-im-internet.de/pstg/__18.html' },
+  { key: 'krankenkasse', icon: '🩺', title: 'Sağlık sigortası · Familienversicherung', due: b => ageDate(b, { d: 21 }), when: 'Mümkün olan en kısa sürede',
+    info: 'Bebek, yasal sigortalı ebeveynin sigortasına ücretsiz eklenir: Krankenkasse formu + doğum belgesi. Ebeveynlerden biri özel sigortalıysa süreler kısadır (özel sigortada 2 ay, gönüllü yasal sigortada 3 ay); sigortanıza danışın.', src: 'https://www.gesetze-im-internet.de/sgb_5/__10.html' },
+  { key: 'mutterschaft', icon: '🤱', title: 'Mutterschaftsgeld · Krankenkasse', due: b => ageDate(b, { d: 21 }), when: 'Doğum belgesi gelince',
+    info: 'Mutterschaftsgeld, "Mutterschaftshilfe" amaçlı ücretsiz doğum belgesiyle Krankenkasse\'den istenir. Mutterschutz doğumdan sonra 8 hafta sürer (erken/çoğul doğumda 12). Bu para, annenin ilk Elterngeld aylarından düşülür.', src: 'https://www.gesetze-im-internet.de/muschg_2018/__3.html' },
+  { key: 'elternzeit', icon: '💼', title: 'Elternzeit · işverene bildirim', due: b => ageDate(b, { d: 7 }), when: 'İzin başlangıcından en az 7 hafta önce',
+    info: 'Elternzeit, başlamasından en az 7 hafta önce işverene yazılı bildirilir (sonraki 2 yılın planıyla). Anne Mutterschutz biter bitmez başlayacaksa bu süre doğumdan yaklaşık 1 hafta sonra dolar; geç bildirimde izin, bildirimden 7 hafta sonra başlar. Baba için: planladığı başlangıçtan 7 hafta geriye sayın.', src: 'https://www.gesetze-im-internet.de/beeg/__16.html' },
+  { key: 'steuerid', icon: '🔢', title: 'Steuer-ID mektubu', due: b => ageDate(b, { m: 3 }), when: 'Birkaç hafta içinde kendiliğinden gelir',
+    info: 'Bundeszentralamt für Steuern, bebeğin vergi numarasını posta ile kendiliğinden gönderir. 3 ay içinde gelmezse BZSt\'nin çevrimiçi formuyla istenir (telefonla verilmez). Kindergeld başvurusu için gerekir.', src: 'https://verwaltung.bund.de/leistungsverzeichnis/DE/leistung/99102044101000/herausgeber/LeiKa-102730390/region/000000000000' },
+  { key: 'elterngeld', icon: '💶', title: 'Elterngeld başvurusu', due: b => new Date(+ageDate(b, { m: 4 }) - DAY), when: '4. yaşam ayının sonuna kadar (geriye dönük en fazla 3 ay ödenir)',
+    info: 'Elterngeld geriye dönük en fazla, başvurunun ulaştığı yaşam ayından önceki son 3 yaşam ayı için ödenir. Hiçbir ayı kaybetmemek için başvurunun bu tarihe (4. yaşam ayının son günü) kadar ulaşması gerekir; daha erken başvurmak her zaman daha rahattır. Hangi ebeveynin hangi ayları hangi türde (Basis, Plus, Partnerschaftsbonus) alacağı yazılır. Bazı eyaletlerde ElterngeldDigital ile çevrimiçi yapılır.', src: 'https://www.gesetze-im-internet.de/beeg/__7.html' },
+  { key: 'kindergeld', icon: '👶', title: 'Kindergeld başvurusu', due: b => new Date(b.getFullYear(), b.getMonth() + 7, 0), when: 'Steuer-ID gelince (geriye dönük en fazla 6 ay)',
+    info: '2026\'da çocuk başına ayda 259 €. Geriye dönük en fazla 6 ay ödenir; doğum ayını kaybetmemek için başvurunun bu tarihe kadar Familienkasse\'ye ulaşması gerekir. Ebeveynin ve çocuğun Steuer-ID\'si gerekir; çevrimiçi yapılabilir.', src: 'https://familienportal.de/familienportal/familienleistungen/kindergeld/faq' },
+  { key: 'nufus', icon: '🇹🇷', title: 'Türk konsolosluğu · doğum bildirimi (nüfus kaydı)', due: b => ageDate(b, { d: 60 }), when: 'Doğumdan sonra 60 gün içinde', tr: true,
+    info: 'Ebeveynlerden biri Türk vatandaşıysa doğum, 60 gün içinde konsolosluğa bildirilir: konsolosluk.gov.tr\'den randevu, Standesamt\'tan uluslararası doğum belgesi (Formül A) ve kimlikler. Pasaport/kimlik bu kayıttan sonra alınır.', src: 'https://konsolosluk.gov.tr/Faq/Index' },
+  { key: 'aufenthalt', icon: '🪪', title: 'Oturum izni · Ausländerbehörde', due: b => ageDate(b, { m: 6 }), when: 'Doğumdan sonra 6 ay içinde', foreign: true,
+    info: 'Çocuk doğumla Alman vatandaşı olmadıysa (Standesamt bunu doğum kaydında belirler) oturum izni için 6 ay içinde Ausländerbehörde\'ye başvurulur; doğum belgesi ve çocuğun pasaportu gerekir. Zamanında başvuru, işlem sürerken yasal kalışı da korur.', src: 'https://www.gesetze-im-internet.de/aufenthg_2004/__81.html' },
+  { key: 'kita', icon: '🧸', title: 'Kita / Krippe kaydı', due: b => ageDate(b, { m: 6 }), when: 'Şehre göre değişir; erken bekleme listesine yazılmak önerilir',
+    info: '1 yaşından itibaren yasal Kita hakkı vardır. Kayıt şekli şehre göre değişir; birçok şehirde ilk aylarda bekleme listelerine yazılmak önerilir. Hamburg\'da Kita-Gutschein istenen başlangıçtan 3–6 ay önce çevrimiçi istenir ve geriye dönük ödenmez.', src: 'https://www.hamburg.de/politik-und-verwaltung/behoerden/bsfb/familie/kinderbetreuung/elterninformationen/kita-gutschein-35656' },
+];
+const paperDone = key => E('paper', { babyId: S.babyId }).find(e => e.data.key === key && e.data.done);
+function papersList() {
+  const b = baby(); const birth = birthOf(b); if (!birth || b.status !== 'born') return [];
+  const cfg = b.data?.papers || {};
+  return PAPERS.filter(p => (!p.tr || cfg.tr !== false) && (!p.foreign || cfg.foreign !== false))
+    .map(p => ({ ...p, date: p.due(startOfDay(birth)), done: paperDone(p.key) }))
+    .map(p => ({ ...p, left: daysBetween(new Date(), p.date) }));
+}
+const paperWhen = p => p.done ? `✓ ${fmtDate(p.done.ts, { day: 'numeric', month: 'short' })}` : p.left < 0 ? 'süresi geçti · hâlâ yapılabilir' : p.left === 0 ? 'bugün' : p.left <= 60 ? `${p.left} gün` : fmtDate(p.date, { day: 'numeric', month: 'short', year: 'numeric' });
+function papersCard() {
+  if (!isParent() || S.prefs.country !== 'DE') return '';
+  const b = baby(); if (b?.status !== 'born') return '';
+  const list = papersList(); const open = list.filter(p => !p.done).sort((a, c) => a.date - c.date), done = list.filter(p => p.done);
+  const cfg = b.data?.papers || {};
+  return `<div class="card"><div class="row between"><h3>📋 Evrak takvimi</h3><span class="muted tiny">${done.length}/${list.length}</span></div>
+    ${cfg.tr == null ? `<div class="card soft small" style="margin:10px 0"><b>Ebeveynlerden biri Türk vatandaşı mı?</b> Konsolosluk ve oturum izni adımları buna göre görünür.
+      <div class="chips" style="margin-top:8px"><button class="chip" data-act="paperCfg" data-k="tr" data-v="1">Evet</button><button class="chip" data-act="paperCfg" data-k="tr" data-v="0">Hayır</button></div></div>` : ''}
+    ${cfg.tr && cfg.foreign == null ? `<div class="card soft small" style="margin:10px 0"><b>${esc(TR.cap(babyName()))} doğumla Alman vatandaşı oldu mu?</b> Standesamt doğum kaydında belirtir.
+      <div class="chips" style="margin-top:8px"><button class="chip" data-act="paperCfg" data-k="foreign" data-v="0">Evet, Alman</button><button class="chip" data-act="paperCfg" data-k="foreign" data-v="1">Hayır</button><button class="chip" data-act="paperCfg" data-k="foreign" data-v="1">Bilmiyorum</button></div></div>` : ''}
+    ${open.map(p => `<button class="list-item" style="width:100%;text-align:left" data-act="paperOpen" data-k="${p.key}"><span style="font-size:1.3rem">${p.icon}</span><div class="grow"><b class="small">${esc(p.title)}</b><div class="muted tiny">${esc(p.when)}</div></div>
+      <span class="tiny" style="font-weight:800;color:${p.left < 0 || p.left <= 14 ? 'var(--deep)' : 'var(--muted)'};text-align:right">${paperWhen(p)}</span></button>`).join('')}
+    ${done.length ? `<details style="margin-top:6px"><summary class="muted small">Tamamlananlar (${done.length})</summary>${done.map(p => `<button class="list-item" style="width:100%;text-align:left;min-height:46px" data-act="paperOpen" data-k="${p.key}"><span>✓</span><span class="grow small">${esc(p.title)}</span><span class="muted tiny">${paperWhen(p)}</span></button>`).join('')}</details>` : ''}
+    <p class="muted tiny" style="margin-top:8px">Resmi kaynaklardan derlenmiştir (Ekim 2026); bilgi amaçlıdır. Kendi durumunuz için ilgili kuruma danışın.</p></div>`;
+}
+function paperHomeCard() { // ana ekranda: en yakın, 14 gün içinde ya da süresi geçmiş tek adım
+  if (!isParent() || S.prefs.country !== 'DE' || snoozed('paper')) return '';
+  const p = papersList().filter(p => !p.done && p.left <= 14).sort((a, c) => a.date - c.date)[0]; if (!p) return '';
+  return `<div class="card row" style="border:2px solid var(--soft2)"><span style="font-size:1.6rem">${p.icon}</span><div class="grow" data-act="paperOpen" data-k="${p.key}" style="cursor:pointer"><div class="tag">Evrak · ${paperWhen(p)}</div><b class="small">${esc(p.title)}</b></div>
+    <button class="link small" data-act="snooze" data-k="paper" data-d="3">${t('later')}</button></div>`;
+}
+A.paperCfg = async d => { const b = baby(); b.data = { ...b.data, papers: { ...(b.data?.papers || {}), [d.k]: d.v === '1' } }; await saveBaby(b); render(); };
+A.paperOpen = d => {
+  const p = papersList().find(x => x.key === d.k); if (!p) return;
+  openSheet(`<h2>${p.icon} ${esc(p.title)}</h2>
+    <p class="pill">${p.done ? '✓ tamamlandı · ' + fmtDateY(p.done.ts) : (p.left < 0 ? 'Önerilen tarih geçti · ' : 'Son/önerilen tarih: ') + fmtDateY(p.date)}</p>
+    <p style="margin-top:12px">${esc(p.info)}</p>
+    <p class="small"><a href="${p.src}" target="_blank" rel="noopener">Resmi kaynak ↗</a></p>
+    <button class="btn block" style="margin-top:14px" data-act="paperToggle" data-k="${p.key}">${p.done ? '↩︎ Yapılmadı olarak geri al' : 'Tamamlandı olarak işaretle ✓'}</button>`);
+};
+A.paperToggle = async d => {
+  const id = await detId(S.babyId + ':paper:' + d.k); const prev = S.entries.get(id);
+  await saveEntry({ id, kind: 'paper', ts: nowISO(), data: { key: d.k, done: !(prev && !prev.deleted && prev.data.done) }, deleted: false });
+  closeSheet(); render();
 };
 
 /* ── istek listesi */
@@ -2681,7 +2775,7 @@ function settingsHTML() {
   <div class="day-h">Ayarlar</div>
   <div class="card">
     <div class="toggle"><span>Adın</span><button class="link" data-act="editName">${esc(me.display_name)}</button></div>
-    <div class="toggle"><span>Gece modu kendiliğinden<div class="muted small">22:00–06:00 arası kırmızımsı karanlık ekran</div></span>${sw('', S.prefs.nightAuto, 'nightAuto')}</div>
+    <div class="toggle"><span>Gece modu kendiliğinden açılsın<div class="muted small">22:00–06:00 arası kırmızımsı karanlık ekran ve büyük düğmeler. Kapalıyken ana ekrandaki 🌙 ile istediğin an açabilirsin.</div></span>${sw('', S.prefs.nightAuto, 'nightAuto')}</div>
     ${S.sb ? `<div class="toggle"><span>Gece uyanık olduğumu göster<div class="muted small">Ailedekiler "${esc(me.display_name)} de uyanık" görür</div></span>${sw('', me.show_awake !== false, 'showAwake')}</div>` : ''}
   </div>
   ${isParent() ? `<div class="card"><h3>👨‍👩‍👧 Aile</h3>
@@ -2717,6 +2811,11 @@ document.addEventListener('change', async e => {
   if (k === 'nightAuto') { S.prefs.nightAuto = on; S.nightManual = null; await savePrefs(); render(); }
   if (k === 'pref') { S.prefs[el.dataset.k] = on; await savePrefs(); }
   if (k === 'showAwake') await saveMe({ show_awake: on });
+  if (k === 'frameNotify') {
+    await setFrameNotify(on); refresh();
+    if (on && pushState() !== 'subscribed') { const ok = await subscribePush(true).catch(() => false); toast(ok ? 'Bildirim açık 📸' : 'Bildirim izni verilmedi; telefon ayarlarından açabilirsin'); }
+    else toast(on ? 'Bildirim açık 📸' : 'Bildirim kapalı');
+  }
   if (k === 'grant') {
     const g = { family_id: S.family, grantor: meId(), grantee: el.dataset.u, scope: el.dataset.scope };
     try {
@@ -2872,7 +2971,7 @@ const b64 = blob => new Promise(r => { const f = new FileReader(); f.onload = ()
 A.exportAll = async (_, btn) => {
   btn.disabled = true; btn.textContent = 'Hazırlanıyor…';
   const entries = [...S.entries.values()].filter(e => !e.deleted);
-  const paths = new Set([...entries.map(e => e.photo_path), ...S.babies.map(b => b.photo_path)].filter(Boolean));
+  const paths = new Set([...entries.map(e => e.photo_path), ...entries.map(e => e.data?.audio_path), ...S.babies.map(b => b.photo_path)].filter(Boolean));
   const parts = [`{"app":"ninni","version":1,"exported_at":"${nowISO()}","babies":${JSON.stringify(S.babies.map(b => only(b, BABY_COLS)))},"members":${JSON.stringify(S.members.map(m => ({ user_id: m.user_id, display_name: m.display_name, role: m.role, parent_kind: m.parent_kind, relation: m.relation })))},"entries":${JSON.stringify(entries.map(e => only(e, ENTRY_COLS)))},"photos":{`];
   let first = true;
   for (const p of paths) { const bl = await photoBlob(p); if (!bl) continue; parts.push((first ? '' : ',') + JSON.stringify(p) + ':' + JSON.stringify(await b64(bl))); first = false; }
@@ -2896,7 +2995,8 @@ A.importAll = async () => {
     for (const e of data.entries || []) {
       if (S.entries.has(e.id)) continue;
       if (e.subject === 'self' && e.owner_id !== meId()) continue; // başkasının kişisel kayıtları içe alınmaz
-      await saveEntry({ ...e, owner_id: meId(), photo_path: pathMap[e.photo_path] || e.photo_path, family_id: S.family }); n++;
+      const data = e.data?.audio_path && pathMap[e.data.audio_path] ? { ...e.data, audio_path: pathMap[e.data.audio_path] } : e.data;
+      await saveEntry({ ...e, data, owner_id: meId(), photo_path: pathMap[e.photo_path] || e.photo_path, family_id: S.family }); n++;
     }
     toast(`${n} anı geri geldi 🤍`); render();
   } catch (e) { toast('Bu dosyayı okuyamadık'); }
@@ -2946,7 +3046,8 @@ function polaroid(ctx, img, cx, top, maxW, maxH, rnd) {
   ctx.restore(); return ih + pad + bottom;
 }
 
-async function storyCanvas({ title, text, photo, sub, seed }) {
+async function storyCanvas({ title, text, photo, sub, seed, voice }) {
+  if (voice) await ensureQR();
   await ensureFonts();
   const W = 1080, H = 1920, c = document.createElement('canvas'); c.width = W; c.height = H; const ctx = c.getContext('2d'); const rnd = seeded(seed || title);
   paperBg(ctx, W, H, rnd);
@@ -2960,8 +3061,9 @@ async function storyCanvas({ title, text, photo, sub, seed }) {
     let fs = 70; ctx.font = `400 ${fs}px Caveat`; let lines = wrap(ctx, text, W - 200);
     while ((lines.length * fs * 1.2 > H - y - 200) && fs > 40) { fs -= 4; ctx.font = `400 ${fs}px Caveat`; lines = wrap(ctx, text, W - 200); }
     ctx.fillStyle = TEXT_INK; if (!photo) y = Math.max(y, (H - lines.length * fs * 1.2) / 2);
-    for (const l of lines) { if (y > H - 200) break; ctx.fillText(l, W / 2, y + fs); y += fs * 1.2; }
+    for (const l of lines) { if (y > H - (voice ? 620 : 200)) break; ctx.fillText(l, W / 2, y + fs); y += fs * 1.2; }
   }
+  if (voice) drawVoiceTicket(ctx, { x: 110, y: H - 520, w: W - 220, h: 330, caption: voice.caption, url: voice.url, date: voice.date, rnd });
   brand(ctx, W, H, 30);
   return c;
 }
@@ -2977,6 +3079,7 @@ function entryCardSpec(e) {
   if (e.kind === 'first') return { title: e.data.title, text: e.data.text, sub };
   if (e.kind === 'mphoto') return { title: `${name} · ${e.data.month}. ay`, sub: fmtDateY(e.ts) };
   if (e.kind === 'frame') return { title: `${name} · ${dayLabel2(frameDay(e.ts)).toLocaleLowerCase('tr')}`, sub: fmtDateY(e.ts) };
+  if (e.kind === 'voice') return { title: e.data.text || `${TR.gen(name)} sesi`, sub, voice: { url: voiceURL(e.data.audio_code), caption: e.data.text || 'Bir ses', date: fmtDate(e.ts) } };
   if (e.kind === 'note') return { title: `${whoLabel(e.owner_id)} yazdı`, text: e.data.text, sub };
   if (e.kind === 'ultra') return { title: e.data.week ? `${e.data.week}. hafta` : 'Seni ilk gördüğümüz an', text: e.data.text, sub: fmtDateY(e.ts) };
   if (e.kind === 'heart') return { title: 'Kalbinin sesi 💓', text: [e.data.bpm ? e.data.bpm + ' atım' : '', e.data.text].filter(Boolean).join('\n'), sub: fmtDateY(e.ts) };
@@ -3012,6 +3115,11 @@ async function renderPages(blocks, { W, H, pad, bleed = 0, seed = 'p', pageNo = 
       if (y + need > bottom) newPage();
       y += polaroid(ctx, img, W / 2, y + fs * .5, maxW * .86, maxH, rnd) + fs * 1.4; continue;
     }
+    if (bl.type === 'voice') { // şık QR bileti
+      const th = fs * 5.4; if (y + th + fs > bottom) newPage();
+      drawVoiceTicket(ctx, { x: pad, y: y + fs * .4, w: maxW, h: th, caption: bl.caption, url: bl.url, date: bl.date, rnd });
+      y += th + fs * 1.2; continue;
+    }
     if (bl.type === 'grid') {
       const cols = 3, gap = maxW * .03, cell = (maxW - gap * (cols - 1)) / cols; const rows = Math.ceil(bl.blobs.length / cols);
       if (y + rows * (cell + gap + fs) > bottom) newPage();
@@ -3033,6 +3141,11 @@ async function letterBlocks(n, { withPhotos = true } = {}) {
   const L = buildLetter(n); const blocks = [{ type: 'title', text: L.title }];
   if (withPhotos && L.photos[0]) { const b = await photoBlob(L.photos[0]); if (b) blocks.push({ type: 'photo', blob: b }); }
   L.paras.forEach(p => blocks.push({ type: 'p', text: p }));
+  if (L.voices.length) { // ses anıları → şık QR biletleri
+    await ensureQR();
+    blocks.push({ type: 'p', text: L.voices.length > 1 ? 'Bu ayın sesleri:' : 'Bu ayın sesi:' });
+    for (const v of L.voices) blocks.push({ type: 'voice', caption: v.data.text || 'Bir ses', url: voiceURL(v.data.audio_code), date: fmtDate(v.ts) });
+  }
   blocks.push({ type: 'sig', text: L.sig });
   if (withPhotos) for (const p of L.photos.slice(1)) { const b = await photoBlob(p); if (b) blocks.push({ type: 'photo', blob: b }); }
   return { L, blocks };
@@ -3057,6 +3170,162 @@ A.letterPDF = async (d, btn) => {
     await shareFiles([file], L.title);
   } catch (e) { console.warn(e); toast('PDF hazırlanamadı; internet bağlantısı gerekebilir'); }
   btn.disabled = false; btn.textContent = 'PDF';
+};
+
+/* ══════════════════════════ SES ANILARI ══════════════════════════
+   Kısa ses kaydı (≤60 sn) → anı. Mektupta / yıl kitabında şık bir QR "bileti" ile dinlenir. */
+const QR_INK = { girl: '#5e3346', boy: '#2c4560', wait: '#4b3a60' }; // okunabilsin diye tema renginin KOYU tonu
+const qrInk = () => QR_INK[document.documentElement.dataset.theme] || QR_INK.girl;
+const voiceURL = code => `${CONFIG.SB_URL}/functions/v1/ninni-ses?k=${code}`;
+const randCode = (n = 10) => { const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; return [...crypto.getRandomValues(new Uint8Array(n))].map(x => a[x % 32]).join(''); };
+const fmtDur = s => `${Math.floor(s / 60)}:${pad(Math.round(s % 60))}`;
+async function ensureQR() { if (!window.qrcode) await loadScript('https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js'); }
+// Beyaz kare YOK: kâğıdın üstüne yuvarlak noktalar + yuvarlatılmış köşe işaretleri
+function drawQR(ctx, text, x, y, size, color) {
+  const q = qrcode(0, 'Q'); q.addData(text); q.make(); const n = q.getModuleCount(); const m = size / n;
+  const finder = (r, c) => (r < 7 && c < 7) || (r < 7 && c >= n - 7) || (r >= n - 7 && c < 7);
+  ctx.save(); ctx.fillStyle = color; ctx.strokeStyle = color;
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c) && !finder(r, c)) { ctx.beginPath(); ctx.arc(x + (c + .5) * m, y + (r + .5) * m, m * .46, 0, 7); ctx.fill(); }
+  const rr = (px, py, s, rad) => { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px, py, s, s, rad) : ctx.rect(px, py, s, s); };
+  for (const [fr, fc] of [[0, 0], [0, n - 7], [n - 7, 0]]) {
+    const px = x + fc * m, py = y + fr * m;
+    ctx.lineWidth = m; rr(px + m / 2, py + m / 2, 6 * m, 2 * m); ctx.stroke();
+    rr(px + 2 * m, py + 2 * m, 3 * m, 1.1 * m); ctx.fill();
+  }
+  ctx.restore();
+}
+// El çizimi kesik çizgili "bilet": solda QR, sağda 🎧 + başlık + ses dalgası
+function drawVoiceTicket(ctx, { x, y, w, h, caption, url, date, rnd }) {
+  const ink = inkColor(), pad2 = h * .1, qs = h - pad2 * 2;
+  ctx.save();
+  ctx.fillStyle = ink; ctx.globalAlpha = .06; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, h * .16) : ctx.rect(x, y, w, h); ctx.fill();
+  ctx.globalAlpha = .55; ctx.strokeStyle = ink; ctx.lineWidth = Math.max(2, h * .012); ctx.setLineDash([h * .05, h * .035]); ctx.stroke(); ctx.setLineDash([]);
+  ctx.globalAlpha = 1; drawQR(ctx, url, x + pad2, y + pad2, qs, qrInk());
+  const tx = x + pad2 * 2 + qs, tw = w - (tx - x) - pad2;
+  ctx.fillStyle = ink; ctx.textAlign = 'left';
+  ctx.font = `700 ${h * .11}px Nunito`; ctx.globalAlpha = .8; ctx.fillText('🎧 SESİNİ DİNLE', tx, y + h * .27); ctx.globalAlpha = 1;
+  ctx.fillStyle = TEXT_INK; let fsz = h * .2; ctx.font = `600 ${fsz}px Caveat`;
+  let lines = wrap(ctx, caption || 'Bir ses', tw); while (lines.length > 2 && fsz > h * .13) { fsz -= 2; ctx.font = `600 ${fsz}px Caveat`; lines = wrap(ctx, caption || 'Bir ses', tw); }
+  lines.slice(0, 2).forEach((l, i) => ctx.fillText(l, tx, y + h * .27 + fsz * (1.05 + i * 1.02)));
+  // küçük ses dalgası
+  const by = y + h * .82, bw = h * .03; ctx.fillStyle = ink; ctx.globalAlpha = .45;
+  for (let i = 0; i < 14; i++) { const bh = h * (.04 + (rnd ? rnd() : Math.random()) * .12); ctx.beginPath(); ctx.roundRect ? ctx.roundRect(tx + i * bw * 1.8, by - bh / 2, bw, bh, bw / 2) : ctx.rect(tx + i * bw * 1.8, by - bh / 2, bw, bh); ctx.fill(); }
+  if (date) { ctx.globalAlpha = .55; ctx.fillStyle = TEXT_INK; ctx.font = `400 ${h * .085}px Nunito`; ctx.textAlign = 'right'; ctx.fillText(date, x + w - pad2, by + h * .03); }
+  ctx.restore();
+}
+const voicesIn = (start, end) => E('voice').filter(e => { const d = new Date(e.ts); return d >= start && d < end && e.data.audio_code; }).sort((a, b) => new Date(a.ts) - new Date(b.ts));
+
+/* ── kayıt */
+S.rec = null;
+A.recordVoice = () => {
+  S.rec = null;
+  openSheet(`<h2>🎙️ Bir ses anısı</h2><p class="muted small">İlk agulama, kahkaha, sana söylediği bir "aaa"… En fazla 60 saniye.</p>
+    <div class="center" style="margin:18px 0"><button id="recBtn" class="btn" style="width:150px;height:150px;border-radius:50%;font-size:1.05rem;flex-direction:column" data-act="recToggle">🎙️<br>Kayda başla</button></div>
+    <div id="recAfter" class="hidden">
+      <audio id="recPlay" controls playsinline style="width:100%"></audio>
+      <label class="f" style="margin-top:12px"><span>Ne sesi?</span><input class="in" id="recCap" placeholder="ör. İlk agulama"></label>
+      <label class="f"><span>Hangi gün?</span><input class="in" type="date" id="recDate" value="${ymd(new Date())}" max="${ymd(new Date())}"></label>
+      <button class="btn block" data-act="recSave">Kaydet</button>
+      <button class="link center block" style="margin-top:12px;width:100%" data-act="recToggle">Yeniden kaydet</button>
+    </div>`);
+};
+A.recToggle = async () => {
+  const btn = $('#recBtn');
+  if (S.rec?.mr?.state === 'recording') { S.rec.mr.stop(); return; }
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast('Bu cihaz ses kaydını desteklemiyor');
+  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false } }); } catch (e) { return toast('Mikrofon izni verilmedi'); }
+  const mime = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find(t => MediaRecorder.isTypeSupported(t)) || '';
+  const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); const chunks = [];
+  S.rec = { mr, chunks, start: Date.now() };
+  $('#recAfter').classList.add('hidden');
+  mr.ondataavailable = e => e.data.size && chunks.push(e.data);
+  mr.onstop = () => {
+    stream.getTracks().forEach(t => t.stop()); clearInterval(S.rec.t);
+    const type = (mr.mimeType || mime || 'audio/mp4').split(';')[0];
+    S.rec.blob = new Blob(chunks, { type }); S.rec.dur = (Date.now() - S.rec.start) / 1000;
+    $('#recPlay').src = URL.createObjectURL(S.rec.blob); $('#recAfter').classList.remove('hidden');
+    btn.innerHTML = `✓<br>${fmtDur(S.rec.dur)}`; btn.classList.add('ghost');
+    setTimeout(() => $('#recCap')?.focus(), 200);
+  };
+  mr.start(250); haptic(); btn.classList.remove('ghost');
+  const upd = () => { const s = (Date.now() - S.rec.start) / 1000; btn.innerHTML = `⏹<br>${fmtDur(s)} · durdur`; if (s >= 60) mr.stop(); };
+  upd(); S.rec.t = setInterval(upd, 250);
+};
+A.recSave = async () => {
+  const r = S.rec; if (!r?.blob?.size) return;
+  const ext = r.blob.type.includes('mp4') ? 'm4a' : 'webm';
+  const path = `${S.family}/${uuid()}.${ext}`;
+  await putBlob(path, r.blob); photoCache.set(path, URL.createObjectURL(r.blob)); await queue({ t: 'upload', path });
+  const date = $('#recDate').value; const ts = date === ymd(new Date()) ? nowISO() : new Date(parseYmd(date).setHours(12)).toISOString();
+  await saveEntry({ kind: 'voice', ts, data: { text: $('#recCap').value.trim(), audio_path: path, audio_code: randCode(), dur: Math.round(r.dur) } });
+  S.rec = null; closeSheet(); toast('Ses anısı saklandı 🎧'); render();
+};
+/* ── dinleme */
+A.playVoice = async (d, btn) => {
+  const e = S.entries.get(d.id); if (!e) return;
+  if (S.voice?.id === e.id && !S.voice.a.paused) { S.voice.a.pause(); return; }
+  S.voice?.a.pause();
+  const url = await photoURL(e.data.audio_path); if (!url) return toast('Ses şu an açılamadı');
+  const a = new Audio(url); S.voice = { id: e.id, a };
+  const label = () => { $$(`[data-act=playVoice][data-id="${e.id}"]`).forEach(b => b.textContent = a.paused ? `▶︎ ${fmtDur(e.data.dur || 0)}` : '⏸ dinleniyor'); };
+  a.onplay = a.onpause = a.onended = label; a.play().catch(() => toast('Ses çalınamadı'));
+};
+
+/* ── ay kartı: "Ekin · 1 aylık" — o ayın en güzel fotoğrafı + kilo/boy + ilkler (story 9:16) */
+function monthPick(n) {
+  const birth = birthOf(); const start = addMonths(birth, n - 1), end = new Date(+addMonths(birth, n) + DAY);
+  const inR = e => { const d = new Date(e.ts); return d >= start && d < end; };
+  const photos = PHOTO_KINDS.flatMap(k => E(k)).filter(e => e.photo_path && inR(e)).sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  const photo = photos.find(e => e.data?.fav) || monthlySeries().find(m => m.month === n)?.e || photos.find(e => e.kind === 'frame') || photos[0] || null;
+  const gr = E('growth').filter(e => new Date(e.ts) < end).sort((a, b) => new Date(b.ts) - new Date(a.ts))[0];
+  const firsts = E('first').filter(e => inR(e) && !['born'].includes(e.data.key)).sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  return { photo, gr, firsts, date: addMonths(birth, n) };
+}
+async function monthCanvas(n) {
+  await ensureFonts();
+  const W = 1080, H = 1920, c = document.createElement('canvas'); c.width = W; c.height = H; const ctx = c.getContext('2d');
+  const rnd = seeded('ay' + n + S.babyId); paperBg(ctx, W, H, rnd);
+  const { photo, gr, firsts, date } = monthPick(n); const name = TR.cap(babyName());
+  ctx.textAlign = 'center'; ctx.fillStyle = inkColor();
+  ctx.font = '600 120px Caveat'; ctx.fillText(name, W / 2, 230);
+  ctx.font = '600 170px Caveat'; ctx.fillText(`${n} aylık`, W / 2, 400);
+  ctx.save(); ctx.strokeStyle = inkColor(); ctx.globalAlpha = .45; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.beginPath(); // el çizimi dalga + kalp
+  for (let x = 0; x <= 300; x += 4) ctx.lineTo(W / 2 - 150 + x, 445 + Math.sin(x / 20 + rnd()) * 6); ctx.stroke(); ctx.restore();
+  ctx.fillStyle = 'rgba(59,53,70,.55)'; ctx.font = '400 34px Nunito'; ctx.fillText(fmtDateY(date), W / 2, 510);
+  let y = 560;
+  const b = photo ? await photoBlob(photo.photo_path) : null;
+  if (b) { const img = await blobImage(b); y += polaroid(ctx, img, W / 2, y, 780, 820, rnd) + 50; } else y += 120;
+  // kilo / boy rozetleri
+  const pills = []; if (gr?.data.w) pills.push(fmtKg(gr.data.w)); if (gr?.data.h) pills.push(`${String(gr.data.h).replace('.', ',')} cm`);
+  if (pills.length) {
+    ctx.font = '800 46px Nunito'; const pw = pills.map(p => ctx.measureText(p).width + 70); const total = pw.reduce((s, x) => s + x, 0) + (pills.length - 1) * 24;
+    let x = (W - total) / 2;
+    for (const [k, p] of pills.entries()) {
+      ctx.save(); ctx.fillStyle = inkColor(); ctx.globalAlpha = .14; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, pw[k], 84, 42) : ctx.rect(x, y, pw[k], 84); ctx.fill(); ctx.restore();
+      ctx.fillStyle = TEXT_INK; ctx.textAlign = 'center'; ctx.fillText(p, x + pw[k] / 2, y + 58); x += pw[k] + 24;
+    }
+    y += 130;
+  }
+  if (firsts.length) {
+    ctx.fillStyle = TEXT_INK; ctx.font = '400 58px Caveat'; ctx.textAlign = 'center';
+    const line = 'Bu ay ilk kez: ' + firsts.slice(0, 3).map(f => f.data.title.replace(/^İlk /, '').toLocaleLowerCase('tr')).join(', ');
+    for (const l of wrap(ctx, line, W - 200).slice(0, 2)) { if (y > H - 170) break; ctx.fillText(l, W / 2, y + 40); y += 66; }
+  }
+  brand(ctx, W, H, 30);
+  return c;
+}
+A.monthCard = async (d, btn) => {
+  const n = +d.n; if (btn) { btn.disabled = true; }
+  try {
+    const c = await monthCanvas(n); const blob = await canvasBlob(c, .92);
+    const file = new File([blob], `${TR.cap(babyName())}-${n}-aylik.jpg`, { type: 'image/jpeg' });
+    openSheet(`<img class="preview-img" src="${URL.createObjectURL(blob)}"><div class="row" style="gap:8px;margin-top:14px"><button class="btn grow" id="mcShare">Paylaş · Story ✨</button><button class="btn ghost grow" id="mcSave">Kaydet</button></div>
+      <p class="muted tiny center" style="margin-top:8px">Fotoğrafı değiştirmek için o ayın bir fotoğrafına ♡ koy; kart onu kullanır.</p>`, root => {
+      $('#mcShare', root).onclick = () => shareFiles([file], 'Ninni');
+      $('#mcSave', root).onclick = () => { if (isIOS) shareFiles([file], 'Ninni'); else { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click(); } };
+    });
+  } catch (e) { console.warn(e); toast('Kart hazırlanamadı'); }
+  if (btn) btn.disabled = false;
 };
 
 /* ── 12 aylık kolaj */
