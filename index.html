@@ -237,7 +237,7 @@ const CONFIG = {
   VAPID_PUBLIC: 'BGf6f0QkJEnf1MhJ-mp8N5rosyh45ZPmUiHFYPTMGklqzU1PNe9f5f_LBZJpNXhP9wAoNF111jF0NeBE8sA-bRc', // push bildirim açık anahtarı
   COUNTRY: 'DE'          // U-muayeneleri & destek kaynakları için varsayılan
 };
-const APP_VERSION = '1.7.2';
+const APP_VERSION = '1.7.3';
 
 /* ══════════════════════════ METİNLER (TR) ══════════════════════════
    Tüm görünür metinler burada; İngilizce sonradan aynı anahtarlarla eklenecek. */
@@ -2653,7 +2653,7 @@ A.shopArchive = () => {
     <p class="muted tiny center">↺ ile bir ürünü listeye tekrar ekleyebilirsin.</p>`);
 };
 A.shopReAdd = async (d, btn) => { await addShop(d.t); btn.textContent = '✓'; btn.disabled = true; toast(`"${d.t}" listeye eklendi`); refresh(); };
-const shopRow = i => `<button class="list-item shop-item ${i.data.checked ? 'done' : ''}" style="width:100%;text-align:left" data-act="shopToggle" data-id="${i.id}"><span class="check">${i.data.checked ? '✓' : ''}</span><span class="t grow">${esc(i.data.title)}</span>${i.owner_id !== meId() && !i.data.checked ? `<span class="muted tiny">${esc(memberName(i.owner_id))}</span>` : ''}${!i.data.checked ? '<span class="grip" aria-hidden="true">⋮⋮</span>' : ''}</button>`;
+const shopRow = i => `<button class="list-item shop-item ${i.data.checked ? 'done' : ''}" style="width:100%;text-align:left" data-act="shopToggle" data-id="${i.id}"><span class="check">${i.data.checked ? '✓' : ''}</span><span class="t grow">${esc(i.data.title)}</span>${i.owner_id !== meId() && !i.data.checked ? `<span class="muted tiny">${esc(memberName(i.owner_id))}</span>` : ''}${!i.data.checked ? '<span class="grip" aria-hidden="true">⋮⋮</span>' : '<span class="muted tiny" style="white-space:nowrap">↩︎ geri al</span>'}</button>`;
 // Sıra: elle dizilenler data.order'a göre; hiç dizilmemişler (yeni eklenenler) en sonda, eklenme sırasıyla
 const shopOrder = i => i.data.order != null ? i.data.order : 1e15 + new Date(i.ts).getTime();
 VIEWS.list_mount = root => {
@@ -2662,18 +2662,24 @@ VIEWS.list_mount = root => {
 };
 
 /* ── basılı tut + sürükle ile sıralama (kısa dokunuş = çiz, kaydırma = sayfa kayar) */
-let reorderDrag = null, reorderSuppress = false, reorderCtl = null;
+// Dokunuş engeli ASLA kalıcı olamaz: sadece sürükleme sırasında ve bırakıştan sonraki 450 ms
+let reorderDrag = null, reorderSuppressUntil = 0, reorderCtl = null, lastTouchAt = 0;
+const reorderSuppress = () => !!reorderDrag || Date.now() < reorderSuppressUntil;
 document.addEventListener('touchmove', e => { if (reorderDrag) e.preventDefault(); }, { passive: false });
-window.addEventListener('mousemove', e => reorderCtl?.over(e.clientX, e.clientY)); // tek sefer; en son liste yönetir
-window.addEventListener('mouseup', () => reorderCtl?.up());
-document.addEventListener('click', e => { if (reorderSuppress && e.target.closest('.shop-item')) { e.stopPropagation(); e.preventDefault(); } }, true);
+document.addEventListener('touchstart', () => { lastTouchAt = Date.now(); }, { passive: true, capture: true });
+window.addEventListener('mousemove', e => { if (Date.now() - lastTouchAt > 1000) reorderCtl?.over(e.clientX, e.clientY); }); // tek sefer; en son liste yönetir
+window.addEventListener('mouseup', () => { if (Date.now() - lastTouchAt > 1000) reorderCtl?.up(); });
+document.addEventListener('click', e => {
+  if (reorderDrag && Date.now() - reorderDrag.t0 > 15000) { reorderDrag.list?.forEach(r => { r.style.transform = ''; r.classList.remove('shift', 'dragging'); }); reorderDrag = null; } // takılı kalmışsa bırak
+  if (reorderSuppress() && e.target.closest('#shopOpen .shop-item')) { e.stopPropagation(); e.preventDefault(); }
+}, true);
 function enableReorder(box) {
   let timer = null, startY = 0, startX = 0;
   const rows = () => $$('.shop-item', box);
   const cancelTimer = () => { clearTimeout(timer); timer = null; };
   const begin = row => {
     const list = rows(); const from = list.indexOf(row);
-    reorderDrag = { row, list, from, to: from, h: row.offsetHeight }; reorderSuppress = true;
+    reorderDrag = { row, list, from, to: from, h: row.offsetHeight, t0: Date.now() };
     row.classList.add('dragging'); row.style.transform = 'scale(1.03)'; list.forEach(r => r !== row && r.classList.add('shift'));
     haptic(); try { navigator.vibrate?.(25); } catch (e) { }
   };
@@ -2684,7 +2690,7 @@ function enableReorder(box) {
     d.list.forEach((r, k) => { if (r === d.row) return; let s = 0; if (d.from < to && k > d.from && k <= to) s = -d.h; if (d.from > to && k >= to && k < d.from) s = d.h; r.style.transform = s ? `translateY(${s}px)` : ''; });
   };
   const finish = async () => {
-    const d = reorderDrag; reorderDrag = null; setTimeout(() => { reorderSuppress = false; }, 450);
+    const d = reorderDrag; reorderDrag = null; reorderSuppressUntil = Date.now() + 450;
     if (!d) return;
     d.list.forEach(r => { r.style.transform = ''; r.classList.remove('shift', 'dragging'); });
     if (d.to === d.from) return;
@@ -2692,7 +2698,10 @@ function enableReorder(box) {
     for (const [k, id] of ids.entries()) { const it = S.entries.get(id); if (it && it.data.order !== k * 10) await saveEntry({ id, data: { ...it.data, order: k * 10 } }); }
     render();
   };
-  const down = (x, y, target) => { const row = target.closest('.shop-item'); if (!row || reorderDrag) return; startX = x; startY = y; cancelTimer(); timer = setTimeout(() => { timer = null; begin(row); }, 420); };
+  const down = (x, y, target) => {
+    if (reorderDrag) { reorderDrag.list?.forEach(r => { r.style.transform = ''; r.classList.remove('shift', 'dragging'); }); reorderDrag = null; } // yeni dokunuş = eski sürükleme kesin bitmiş
+    const row = target.closest('.shop-item'); if (!row) return; startX = x; startY = y; cancelTimer(); timer = setTimeout(() => { timer = null; begin(row); }, 420);
+  };
   const over = (x, y) => { if (reorderDrag) return move(y); if (timer && (Math.abs(y - startY) > 8 || Math.abs(x - startX) > 8)) cancelTimer(); };
   const up = () => { cancelTimer(); if (reorderDrag) finish(); };
   box.addEventListener('touchstart', e => { const t = e.touches[0]; down(t.clientX, t.clientY, e.target); }, { passive: true });
@@ -2700,7 +2709,7 @@ function enableReorder(box) {
   box.addEventListener('touchend', up); box.addEventListener('touchcancel', up);
   box.addEventListener('contextmenu', e => { if (e.target.closest('.shop-item')) e.preventDefault(); });
   // fare (bilgisayar)
-  box.addEventListener('mousedown', e => { if (e.button === 0) down(e.clientX, e.clientY, e.target); });
+  box.addEventListener('mousedown', e => { if (e.button === 0 && Date.now() - lastTouchAt > 1000) down(e.clientX, e.clientY, e.target); }); // iPhone'un dokunuştan sonra ürettiği sahte fare olaylarını yok say
   reorderCtl = { over, up };
 }
 async function addShop(title) {
