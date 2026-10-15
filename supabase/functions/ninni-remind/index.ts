@@ -51,8 +51,11 @@ Deno.serve(async (req) => {
       if (given?.length) { log.push({ rid: r.id, skip: 'verildi' }); continue; }
       const { data: parents } = await sb.from('members').select('user_id').eq('family_id', r.family_id).eq('role', 'parent');
       ids = (parents ?? []).map(p => p.user_id);
-      const title = `💊 ${d.title || 'Hatırlatıcı'} zamanı`;
-      const body = `${babyName || 'Minik'} bugünkü ${(d.title || 'ilaç').toLocaleLowerCase('tr')} dozunu aldı mı? Verdiyseniz Ninni'de "Verildi"ye dokunun 🤍`;
+      const task = d.rtype === 'task'; // 📌 genel hatırlatıcı (belge, iş…) · 💊 ilaç/takviye
+      const title = task ? `📌 ${d.title || 'Hatırlatıcı'}` : `💊 ${d.title || 'Hatırlatıcı'} zamanı`;
+      const body = task
+        ? `"${d.title || 'Hatırlatıcı'}" yapıldı mı? Yapıldıysa Ninni'de işaretleyin 🤍`
+        : `${babyName || 'Minik'} bugünkü ${(d.title || 'ilaç').toLocaleLowerCase('tr')} dozunu aldı mı? Verdiyseniz Ninni'de "Verildi"ye dokunun 🤍`;
       payload = JSON.stringify({ title, body, tag: 'ninni-' + r.id, url: './' });
     }
     if (!ids.length) continue;
