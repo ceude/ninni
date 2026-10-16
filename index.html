@@ -245,7 +245,7 @@ const CONFIG = {
   VAPID_PUBLIC: 'BGf6f0QkJEnf1MhJ-mp8N5rosyh45ZPmUiHFYPTMGklqzU1PNe9f5f_LBZJpNXhP9wAoNF111jF0NeBE8sA-bRc', // push bildirim açık anahtarı
   COUNTRY: 'DE'          // U-muayeneleri & destek kaynakları için varsayılan
 };
-const APP_VERSION = '1.7.5';
+const APP_VERSION = '1.7.6';
 // Geliştirici testi: adres "?yerel" içeriyorsa Supabase'e HİÇ bağlanma (test verisi gerçek projeye karışmasın)
 if (new URLSearchParams(location.search).has('yerel')) { CONFIG.SB_URL = ''; CONFIG.SB_KEY = ''; }
 
@@ -528,7 +528,15 @@ async function push() {
       let error = null;
       if (it.t === 'entries') {
         const e = S.entries.get(it.id);
-        if (e) { ({ error } = await S.sb.from('entries').upsert(only(e, ENTRY_COLS))); if (!error) { e._dirty = false; await IDB.put('entries', e); } }
+        if (e) {
+          // UPSERT KULLANMA: Supabase upsert'te "ekleme" kuralını da uygular (kaydı ekleyen sen olmalısın) →
+          // eşinin eklediği ürünü çizmek reddedilirdi. Önce güncelle; kayıt sunucuda yoksa ekle.
+          const row = only(e, ENTRY_COLS);
+          let r = await S.sb.from('entries').update(row).eq('id', e.id).select('id');
+          if (!r.error && (!r.data || !r.data.length)) r = await S.sb.from('entries').insert(row);
+          error = r.error;
+          if (!error) { e._dirty = false; await IDB.put('entries', e); }
+        }
       } else if (it.t === 'babies') {
         const b = S.babies.find(x => x.id === it.id) || await IDB.get('babies', it.id);
         if (b) { ({ error } = await S.sb.from('babies').upsert(only(b, BABY_COLS))); if (!error) { b._dirty = false; await IDB.put('babies', b); } }
@@ -541,7 +549,7 @@ async function push() {
       if (error) {
         console.warn('push', it, error); DIAG.pushErr = `${error.code || ''} ${error.message || ''}`.trim();
         if (isAuthError(error)) { markAuthBroken(error); break; } // oturum kapalı: BEKLET, asla atma
-        if (/row-level security/i.test(error.message || '')) { await IDB.del('outbox', key); continue; } // gerçekten yetkisiz bir kayıt (oturum sağlam)
+        if (/row-level security/i.test(error.message || '')) { await IDB.del('outbox', key); continue; } // gerçekten yetkisiz bir kayıt (oturum sağlam); kayıt "gönderilmemiş" olarak kalır, tanılamada görünür
         break;
       }
       await IDB.del('outbox', key);
