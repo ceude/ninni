@@ -245,7 +245,7 @@ const CONFIG = {
   VAPID_PUBLIC: 'BGf6f0QkJEnf1MhJ-mp8N5rosyh45ZPmUiHFYPTMGklqzU1PNe9f5f_LBZJpNXhP9wAoNF111jF0NeBE8sA-bRc', // push bildirim açık anahtarı
   COUNTRY: 'DE'          // U-muayeneleri & destek kaynakları için varsayılan
 };
-const APP_VERSION = '1.7.4';
+const APP_VERSION = '1.7.5';
 // Geliştirici testi: adres "?yerel" içeriyorsa Supabase'e HİÇ bağlanma (test verisi gerçek projeye karışmasın)
 if (new URLSearchParams(location.search).has('yerel')) { CONFIG.SB_URL = ''; CONFIG.SB_KEY = ''; }
 
@@ -498,9 +498,32 @@ let pushing = false;
 async function queue(item) { if (S.local) return; await IDB.put('outbox', item); kick(); }
 function kick() { clearTimeout(kick.t); kick.t = setTimeout(() => sync(), 400); }
 
-async function push() {
-  if (!S.sb || !S.online || pushing) return; pushing = true;
+// Oturum geçerli mi? (Kapanmış oturumla gelen "permission denied" asla "bu kayıt yasak" sanılmamalı → değişiklik ATILMAZ)
+const isAuthError = err => !isNetErr(err) && /jwt|session|refresh|not authenticated|permission denied for (table|schema|function)|401/i.test(`${err?.code} ${err?.message} ${err?.status}`);
+function markAuthBroken(why) {
+  if (S.authBroken) return; S.authBroken = true; DIAG.last = 'oturum: ' + (why?.message || why || 'kapalı');
+  if (S.screen === 'main') refresh();
+}
+// Çekim yok ≠ oturum kapandı. Ağ hatasında SESSİZCE beklenir (uyarı yok); "koptu" sadece gerçekten oturum yoksa.
+const isNetErr = err => /fetch|network|load failed|retryable|timeout|offline|abort/i.test(`${err?.name} ${err?.message}`);
+async function sessionOk() {
+  if (!navigator.onLine) return false;
   try {
+    const { data: { session }, error } = await S.sb.auth.getSession();
+    if (session) return true;
+    if (error) return false; // yenileme ağ yüzünden olmadı: bağlantı gelince tekrar denenir
+    markAuthBroken('oturum yok'); return false;
+  } catch (e) { return false; }
+}
+async function requeueDirty() { // gönderilememiş kalmış her şeyi yeniden sıraya al (kayıp yok)
+  const pending = new Set((await IDB.allWithKeys('outbox')).map(([, it]) => it.t + ':' + (it.id || it.path)));
+  for (const e of S.entries.values()) if (e._dirty && !pending.has('entries:' + e.id)) await IDB.put('outbox', { t: 'entries', id: e.id });
+  for (const b of S.babies) if (b._dirty && !pending.has('babies:' + b.id)) await IDB.put('outbox', { t: 'babies', id: b.id });
+}
+async function push() {
+  if (!S.sb || !S.online || pushing || S.authBroken) return; pushing = true;
+  try {
+    if (!(await sessionOk())) return;
     for (const [key, it] of await IDB.allWithKeys('outbox')) {
       let error = null;
       if (it.t === 'entries') {
@@ -516,8 +539,9 @@ async function push() {
         if (Object.keys(it.patch).length) ({ error } = await S.sb.from('members').update(it.patch).eq('family_id', S.family).eq('user_id', meId()));
       }
       if (error) {
-        console.warn('push', it, error);
-        if (/42501|row-level|permission|violates/i.test(error.code + ' ' + error.message)) { await IDB.del('outbox', key); continue; } // izin yok: tekrar denemenin anlamı yok
+        console.warn('push', it, error); DIAG.pushErr = `${error.code || ''} ${error.message || ''}`.trim();
+        if (isAuthError(error)) { markAuthBroken(error); break; } // oturum kapalı: BEKLET, asla atma
+        if (/row-level security/i.test(error.message || '')) { await IDB.del('outbox', key); continue; } // gerçekten yetkisiz bir kayıt (oturum sağlam)
         break;
       }
       await IDB.del('outbox', key);
@@ -526,13 +550,15 @@ async function push() {
 }
 
 async function pull(full = false) {
-  if (!S.sb || !S.online || !S.family) return;
+  if (!S.sb || !S.online || !S.family || S.authBroken) return;
+  if (!(await sessionOk())) return;
   const fam = S.family;
-  const [{ data: mem }, { data: gr }, { data: bb }] = await Promise.all([
+  const [{ data: mem, error: memErr }, { data: gr }, { data: bb }] = await Promise.all([
     S.sb.from('members').select('*').eq('family_id', fam),
     S.sb.from('grants').select('*').eq('family_id', fam),
     S.sb.from('babies').select('*').eq('family_id', fam),
   ]);
+  if (memErr && isAuthError(memErr)) { markAuthBroken(memErr); return; }
   if (mem) {
     S.members = mem; await kv.set('members', mem);
     const mine = mem.find(m => m.user_id === meId());
@@ -684,7 +710,8 @@ async function diagOpen(_, el) {
   openSheet(`<h2>🔧 Tanılama</h2><pre style="white-space:pre-wrap;font-size:.78rem;background:var(--soft);padding:12px;border-radius:12px">${esc([
     `sürüm: ${APP_VERSION} · ${isStandalone() ? 'ana ekran' : 'tarayıcı'} · ${navigator.onLine ? 'çevrimiçi' : 'çevrimdışı'}`,
     `oturum: ${session ? 'var (' + session.user.id.slice(0, 8) + ')' : 'YOK'} · üye: ${meId()?.slice(0, 8)}`,
-    `aile: ${S.family?.slice(0, 8)} · kayıt: ${S.entries.size} · bekleyen gönderim: ${outbox}`,
+    `aile: ${S.family?.slice(0, 8)} · kayıt: ${S.entries.size} · bekleyen gönderim: ${outbox} · gönderilmemiş kayıt: ${[...S.entries.values()].filter(e => e._dirty).length}`,
+    `bağlantı: ${S.authBroken ? 'KOPUK' : 'sağlam'} · son gönderim hatası: ${DIAG.pushErr || '—'}`,
     `fotoğraflı kayıt: ${withPhoto.length} · telefonda okunan: ${local} · okunamayan: ${localBad}`,
     `örnek indirme: ${test}`,
     `örnek yol: ${sample || '—'}`,
@@ -761,7 +788,10 @@ async function linkGoogle() {
 async function signInGoogle() {
   await S.sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
 }
-async function leftFamily() { // aileden çıkarıldıysa yerel veriyi temizle
+async function leftFamily() { // aileden çıkarıldıysa yerel veriyi temizle — ama ancak KESİNSE
+  if ([...S.entries.values()].some(e => e._dirty) || (await IDB.allWithKeys('outbox')).length) return; // gönderilmemiş değişiklik varken asla silme
+  const { data, error } = await S.sb.from('members').select('family_id').eq('user_id', meId()).eq('family_id', S.family);
+  if (error || !Array.isArray(data) || data.length) return; // emin değiliz (hata ya da hâlâ üye): dokunma
   await resetLocal(); location.reload();
 }
 async function resetLocal() {
@@ -1072,10 +1102,17 @@ async function deviceApi(body, token) {
 }
 async function enterAs(mem) {
   S.me = { user_id: mem.user_id, family_id: mem.family_id, display_name: mem.display_name, role: mem.role, parent_kind: mem.parent_kind, relation: mem.relation, show_awake: mem.show_awake };
-  S.family = mem.family_id; S.local = false; await kv.set('me', S.me);
+  S.family = mem.family_id; S.local = false; S.authBroken = false; await kv.set('me', S.me);
   $('#app').innerHTML = '<div class="ob center"><p class="q">Anılar geliyor…</p></div>';
   await pull(true); await kv.set('babyId', S.babyId); S.screen = 'main'; S.tab = 'today'; render(); afterLogin();
 }
+function authBanner() {
+  if (!S.authBroken || !S.sb) return '';
+  return `<div class="card" style="border:2px solid #d9607a"><div class="row"><span style="font-size:1.6rem">🔌</span><div class="grow"><b>Bu cihazın bağlantısı koptu</b>
+    <p class="muted small">Yaptıkların bu telefonda güvende ama eşine ve diğer cihazlarına gitmiyor. Yeniden bağlanınca bekleyen her şey gönderilir.</p></div></div>
+    <button class="btn block" style="margin-top:10px" data-act="reconnectAsk">Yeniden bağlan</button></div>`;
+}
+A.reconnectAsk = () => sessionDead();
 A.addDevice = async (_, btn) => {
   const { data: { session } } = await S.sb.auth.getSession();
   if (!session || !S.online) return toast('Önce internete bağlanalım');
@@ -1109,10 +1146,11 @@ function sessionDead() { // bu cihazdaki oturum sunucuda kapanmış (ör. eski "
     </div>
     <button class="btn block" data-act="reconnect">Kodu girmeye geç</button>`);
 }
-A.reconnect = async () => {
-  closeSheet(); await clearFamilyCache().catch(() => { });
+A.reconnect = async () => { // YEREL VERİ SİLİNMEZ: aynı hesapla dönünce gönderilememiş değişiklikler gönderilir
+  closeSheet(); S.signingOut = true;
   try { await S.sb.auth.signOut({ scope: 'local' }); } catch (e) { }
-  await resetLocal(); S.me = null; S.family = null; S.rsErr = ''; S.screen = 'restore'; render();
+  S.signingOut = false; if (channel) { try { S.sb.removeChannel(channel); } catch (e) { } channel = null; }
+  S.rsErr = ''; S.screen = 'restore'; render();
 };
 A.obRestoreCode = () => { S.rsErr = ''; S.screen = 'restore'; render(); setTimeout(() => $('#rsCode')?.focus(), 300); };
 VIEWS.restore = () => `
@@ -1136,7 +1174,10 @@ A.restoreDo = async () => {
     S.session = data.session;
     const mem = await findMembership();
     if (!mem) { S.rsErr = 'Bu hesaba bağlı bir aile bulamadık.'; return render(); }
-    await enterAs(mem); toast('Hoş geldin 🤍 Bu cihaz da eklendi.');
+    const prev = await kv.get('me');
+    if (prev && prev.user_id !== mem.user_id) await clearFamilyCache(); // başka bir hesap: eski yerel veriyi karıştırma
+    const wasBroken = !!prev; S.authBroken = false;
+    await enterAs(mem); toast(wasBroken ? 'Yeniden bağlandı 🤍 Bekleyen değişiklikler gönderiliyor.' : 'Hoş geldin 🤍 Bu cihaz da eklendi.');
   } catch (e) { console.warn(e); S.rsErr = 'Bu kod çalışmadı; süresi dolmuş ya da kullanılmış olabilir. Diğer cihazından yeni bir kod alır mısın?'; render(); }
 };
 
@@ -1172,7 +1213,7 @@ VIEWS.join = () => {
 A.joinCancel = () => {
   S.pendingJoin = null; history.replaceState(null, '', location.pathname);
   if (S.prevFamily) return A.backToFamily();
-  S.screen = 'ob'; render();
+  S.screen = S.me ? 'main' : 'ob'; render(); // yeniden bağlanmaktan vazgeçtiyse uygulamaya dön
 };
 A.joinLookup = async () => {
   const j = S.pendingJoin; j.code = ($('#jCode')?.value || j.code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -1540,6 +1581,7 @@ VIEWS.today = () => {
   <div class="top"><div class="grow"><div class="muted small">${greeting()},</div><h1>${esc(S.me.display_name)}</h1></div>
     ${S.babies.length > 1 ? `<button class="icon-btn" data-act="switchBaby" title="Bebek">👶</button>` : ''}
     <button class="icon-btn" data-act="toggleNight" aria-label="Gece modu">${ICON.moon}</button></div>
+  ${authBanner()}
   ${upcomingAppts()}
   ${doseCards()}
   ${paperHomeCard()}
@@ -2639,7 +2681,10 @@ VIEWS.list = () => {
   const freq = frequentShop(); const openKeys = items.filter(i => !i.data.checked).map(i => shopKey(i.data.title));
   const covered = q => [...freq.map(shopKey), ...openKeys].some(f => f === shopKey(q) || f.startsWith(shopKey(q) + ' ')); // "Bez · 2 numara" varken "Bez" gösterme
   const quick = [...freq, ...SHOP_QUICK.filter(q => !covered(q) && !covered(q === 'Bez' && bezLabel ? bezLabel : q))].slice(0, 10);
+  const pendingN = items.filter(i => i._dirty).length;
   return `<div class="top"><h1 class="grow">🛒 Market</h1>${nArch ? `<button class="btn sm ghost" data-act="shopArchive">🗂️ Alınanlar</button>` : ''}</div>
+  ${authBanner()}
+  ${!S.authBroken && S.sb && !S.local && pendingN && !S.online ? `<p class="muted tiny center" style="margin:-6px 0 10px;opacity:.7">📶 Çekim yok · ${pendingN} değişiklik bağlantı gelince gönderilecek</p>` : ''}
   <div class="card"><div class="row"><input class="in grow" id="shopIn" placeholder="Ne lazım?" enterkeyhint="done"><button class="btn" data-act="shopAdd" aria-label="Ekle">+</button></div>
     <p class="muted tiny" style="margin:6px 4px 0;opacity:.75">Arasına virgül koyarak tek seferde de yazabilirsiniz: süt, ekmek, 1,5 kg elma</p>
     ${freq.length ? `<div class="tiny muted" style="margin:12px 4px 0">Daha önce aldıklarınız · en sık alınan önde</div>` : ''}
@@ -3461,7 +3506,7 @@ async function afterLogin() {
   if (S.me?.localOnly && S.sb && S.online) { try { await migrateLocalToCloud(); toast('Anılar buluta taşındı 🤍'); } catch (e) { console.warn('migrate', e); } }
   S.local = !S.sb || !!S.me?.localOnly;
   await ensureAutoFirsts();
-  if (!S.local) { subscribe(); sync(); subscribePush(false).then(ok => ok && refresh()).catch(() => { }); }
+  if (!S.local) { await requeueDirty().catch(() => { }); subscribe(); sync(); subscribePush(false).then(ok => ok && refresh()).catch(() => { }); }
   if (loopsStarted) return; loopsStarted = true;
   setInterval(() => { if (!document.hidden) sync(); }, 60000);
   setInterval(touchPresence, 120000); touchPresence();
@@ -3482,7 +3527,7 @@ async function boot() {
   const jm = location.hash.match(/join=([A-Z0-9-]+)/i);
   if (S.sb) {
     try { const { data: { session } } = await S.sb.auth.getSession(); S.session = session; } catch (e) { }
-    S.sb.auth.onAuthStateChange((_e, s) => { S.session = s; });
+    S.sb.auth.onAuthStateChange((ev, s) => { S.session = s; if (ev === 'SIGNED_OUT' && S.me && !S.signingOut) markAuthBroken('oturum kapandı'); });
   }
   S.local = !S.sb || !!S.me?.localOnly;
   if (S.me) {
